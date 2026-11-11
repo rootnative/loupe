@@ -1,0 +1,60 @@
+{
+  "name": "@rootnative/loupe-probe",
+  "version": "0.0.0",
+  "description": "The in-app helper of loupe by Root Native: it reports the safe-area insets, the window size and the layout direction of your app to loupe, in development only.",
+  "license": "MIT",
+  "author": "Root Native",
+  "homepage": "https://github.com/rootnative/loupe#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/rootnative/loupe.git",
+    "directory": "packages/probe"
+  },
+  "bugs": {
+    "url": "https://github.com/rootnative/loupe/issues"
+  },
+  "keywords": [
+    "react-native",
+    "expo",
+    "ios",
+    "android",
+    "safe-area",
+    "layout",
+    "testing",
+    "ai-agents"
+  ],
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    "./package.json": "./package.json",
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE"
+  ],
+  "sideEffects": false,
+  "scripts": {
+    "build": "tsup",
+    "prepack": "turbo run build --filter=@rootnative/loupe-probe",
+    "dev": "tsup --watch",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "lint": "eslint . --max-warnings 0",
+    "clean": "node -e \"for (const p of ['dist', '.turbo']) require('node:fs').rmSync(p, { recursive: true, force: true })\""
+  },
+  "devDependencies": {
+    "@types/node": "^22.20.2",
+    "tsup": "^8.5.1",
+    "typescript": "^5.9.3",
+    "vitest": "^3.2.4"
+  },
+  "publishConfig": {
+    "access": "public"
+  }
+}
