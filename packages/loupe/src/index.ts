@@ -1,1 +1,20 @@
 export { version } from './version'
+export {
+  containsRect,
+  fromPixels,
+  insetRect,
+  intersection,
+  pointToPixels,
+  rectBottom,
+  rectCentre,
+  rectFromPixels,
+  rectRight,
+  toPixels,
+  unitOf,
+  type Insets,
+  type Platform,
+  type Point,
+  type Rect,
+  type Size,
+  type Unit,
+} from './core/units'
