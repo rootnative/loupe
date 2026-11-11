@@ -1,5 +1,18 @@
 export { version } from './version'
 export {
+  createRegistry,
+  defineCommand,
+  type Command,
+  type Registry,
+} from './core/command'
+export { ERROR_CODES, LoupeError, type ErrorCode } from './core/errors'
+export {
+  runCommand,
+  type CommandFailure,
+  type CommandResult,
+  type CommandSuccess,
+} from './core/run-command'
+export {
   containsRect,
   fromPixels,
   insetRect,
