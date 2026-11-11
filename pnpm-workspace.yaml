@@ -1,0 +1,10 @@
+packages:
+  - 'packages/*'
+
+# pnpm 11 and later ignore pnpm settings in .npmrc, so they live here too.
+# Keep the two copies in sync.
+nodeLinker: hoisted
+shamefullyHoist: true
+strictPeerDependencies: false
+autoInstallPeers: true
+engineStrict: true
