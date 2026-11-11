@@ -1,0 +1,67 @@
+{
+  "name": "@rootnative/loupe",
+  "version": "0.0.0",
+  "description": "loupe by Root Native: layout checks for iOS and Android, built for AI agents. Drive simulators and emulators, and measure every screen to the point.",
+  "license": "MIT",
+  "author": "Root Native",
+  "homepage": "https://github.com/rootnative/loupe#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/rootnative/loupe.git",
+    "directory": "packages/loupe"
+  },
+  "bugs": {
+    "url": "https://github.com/rootnative/loupe/issues"
+  },
+  "keywords": [
+    "react-native",
+    "expo",
+    "ios",
+    "android",
+    "simulator",
+    "emulator",
+    "layout",
+    "testing",
+    "ai-agents",
+    "cli"
+  ],
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "bin": {
+    "loupe": "./dist/bin.js"
+  },
+  "exports": {
+    "./package.json": "./package.json",
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE"
+  ],
+  "engines": {
+    "node": ">=20.19"
+  },
+  "scripts": {
+    "build": "tsup",
+    "prepack": "turbo run build --filter=@rootnative/loupe",
+    "dev": "tsup --watch",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "lint": "eslint . --max-warnings 0",
+    "clean": "node -e \"for (const p of ['dist', '.turbo']) require('node:fs').rmSync(p, { recursive: true, force: true })\""
+  },
+  "devDependencies": {
+    "@types/node": "^22.20.2",
+    "tsup": "^8.5.1",
+    "typescript": "^5.9.3",
+    "vitest": "^3.2.4"
+  },
+  "publishConfig": {
+    "access": "public"
+  }
+}
