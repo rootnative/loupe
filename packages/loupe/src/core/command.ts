@@ -14,6 +14,11 @@ export interface Command<
   summary: string
   input: I
   output: O
+  /**
+   * Input fields that the CLI also takes by position, in order:
+   * `open-url <url>`. Each one still works as a flag.
+   */
+  positionals?: readonly (keyof z.output<I> & string)[]
   // `run` and `format` use the method form on purpose. A method parameter is
   // bivariant, so a list can hold commands with different input types.
   run(input: z.output<I>): Promise<z.input<O>> | z.input<O>

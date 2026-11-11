@@ -1,4 +1,5 @@
 export { version } from './version'
+export { registry } from './commands'
 export {
   createRegistry,
   defineCommand,
