@@ -1,0 +1,60 @@
+name: Android fixtures
+
+# Records the raw adb output that the Android driver parses, on clean
+# emulators, for the test fixtures. Run it by hand when a parser needs new
+# output, for example for a new API level. Each API level uploads one
+# artifact.
+on:
+  workflow_dispatch:
+    inputs:
+      api-levels:
+        description: "API levels, as a JSON list"
+        required: true
+        default: "[30, 33, 34, 35, 36]"
+
+# The token only reads the repository.
+permissions:
+  contents: read
+
+jobs:
+  record:
+    name: Record (API ${{ matrix.api-level }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        api-level: ${{ fromJSON(inputs.api-levels) }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      # The emulator needs KVM. A Linux runner gives access to it only with
+      # this udev rule.
+      - name: Enable KVM
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+
+      # A recent phone profile, so the screen size and the scale are like a
+      # real phone's. With animations off, each dump shows a settled screen.
+      - name: Record on an emulator
+        uses: reactivecircus/android-emulator-runner@a421e43855164a8197daf9d8d40fe71c6996bb0d # v2.38.0
+        with:
+          api-level: ${{ matrix.api-level }}
+          target: google_apis
+          arch: x86_64
+          profile: pixel_6
+          disable-animations: true
+          script: bash scripts/record-android-fixtures.sh "${{ runner.temp }}/android-fixtures/api-${{ matrix.api-level }}"
+
+      # A partial recording still helps, so it uploads after a failure too.
+      - name: Upload the recording
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@330a01c490aca151604b8cf639adc76d48f6c5d4 # v5.0.0
+        with:
+          name: android-fixtures-api-${{ matrix.api-level }}
+          path: ${{ runner.temp }}/android-fixtures/
+          retention-days: 14
+          if-no-files-found: error
