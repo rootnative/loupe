@@ -5,6 +5,10 @@ export const ERROR_CODES = [
   'tool_missing',
   'tool_failed',
   'timeout',
+  'no_device',
+  'device_ambiguous',
+  'device_unavailable',
+  'unsupported',
   'internal',
 ] as const
 

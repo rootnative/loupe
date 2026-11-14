@@ -1,3 +1,4 @@
+import path from 'node:path'
 import { type CommandContext } from '../core/context'
 import { LoupeError } from '../core/errors'
 import { type Exec, type ExecOptions } from '../core/exec'
@@ -42,6 +43,21 @@ export function fakeContext(
   }
 
   return { context: { exec, env }, calls }
+}
+
+/**
+ * A handler that answers from a table. Each key is the tool name and its
+ * arguments, for example `adb -s emulator-5554 shell getprop`. A `LoupeError`
+ * in the table fails that call.
+ */
+export function byCommand(
+  runs: Readonly<Record<string, FakeRun | LoupeError>>,
+): FakeHandler {
+  return ({ file, args }) => {
+    const run = runs[[path.parse(file).name, ...args].join(' ')]
+    if (run instanceof LoupeError) throw run
+    return run
+  }
 }
 
 /** The error that the real `exec` gives for a tool that doesn't exist. */

@@ -1,0 +1,44 @@
+import { z } from 'zod'
+
+export const DEVICE_STATES = [
+  'ready',
+  'booting',
+  'stopped',
+  'offline',
+  'unauthorized',
+  'no-permissions',
+  'other',
+] as const
+
+export const deviceSchema = z.object({
+  platform: z.enum(['android']),
+  kind: z.enum(['emulator', 'device']),
+  serial: z
+    .string()
+    .optional()
+    .describe('The adb serial. An AVD that does not run has none.'),
+  avd: z.string().optional().describe('The AVD name of an emulator.'),
+  model: z.string().optional(),
+  state: z
+    .enum(DEVICE_STATES)
+    .describe(
+      'Only a ready device takes commands. "stopped" is an AVD that does not run.',
+    ),
+  detail: z
+    .string()
+    .optional()
+    .describe('What adb reports, for the states "no-permissions" and "other".'),
+  apiLevel: z.number().int().optional(),
+})
+
+export type Device = z.infer<typeof deviceSchema>
+export type DeviceState = Device['state']
+
+/** The input field of each command that works on one device. */
+export const deviceField = z
+  .string()
+  .min(1)
+  .optional()
+  .describe(
+    'The serial or the AVD name of the device. Without it, loupe uses ANDROID_SERIAL, or the only ready device.',
+  )
