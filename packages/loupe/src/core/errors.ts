@@ -9,6 +9,7 @@ export const ERROR_CODES = [
   'device_ambiguous',
   'device_unavailable',
   'unsupported',
+  'orientation_locked',
   'internal',
 ] as const
 

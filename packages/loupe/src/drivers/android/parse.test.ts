@@ -1,10 +1,139 @@
 import { describe, expect, it } from 'vitest'
+import { API_LEVELS, recordedText } from '../../testing/fixtures'
 import {
   parseAdbDevices,
   parseAvdList,
   parseEmuAvdName,
   parseGetprop,
+  parseWindowDisplays,
 } from './parse'
+
+describe.each(API_LEVELS)('the parsers, on the output of API %i', (level) => {
+  const api = `api-${level}`
+
+  it('read adb devices -l', () => {
+    expect(
+      parseAdbDevices(recordedText(`${api}/host/adb-devices-l.txt`)),
+    ).toEqual([
+      {
+        serial: 'emulator-5554',
+        adbState: 'device',
+        fields: expect.objectContaining({
+          model: expect.stringMatching(/^sdk_gphone/),
+          transport_id: '1',
+        }),
+      },
+    ])
+  })
+
+  it('read the AVD name and the list of AVDs', () => {
+    expect(parseEmuAvdName(recordedText(`${api}/host/emu-avd-name.txt`))).toBe(
+      'test',
+    )
+    expect(
+      parseAvdList(recordedText(`${api}/host/emulator-list-avds.txt`)),
+    ).toEqual(['test'])
+  })
+
+  it('read getprop', () => {
+    const props = parseGetprop(recordedText(`${api}/device/getprop.txt`))
+
+    expect(props).toMatchObject({
+      'ro.build.version.sdk': `${level}`,
+      'ro.kernel.qemu': '1',
+      'sys.boot_completed': '1',
+    })
+    expect(props).not.toHaveProperty('persist.sys.boot.reason.history')
+  })
+
+  it('read the display of a turned screen', () => {
+    expect(
+      parseWindowDisplays(
+        recordedText(
+          `${api}/none/rotation-1/settings/dumpsys-window-displays.txt`,
+        ),
+      ),
+    ).toEqual({
+      natural: { width: 1080, height: 2400 },
+      density: 420,
+      current: { width: 2400, height: 1080 },
+      rotation: 1,
+      appOrientation: 'SCREEN_ORIENTATION_UNSPECIFIED',
+    })
+  })
+
+  it('read the display under the launcher, which holds portrait', () => {
+    expect(
+      parseWindowDisplays(
+        recordedText(`${api}/none/rotation-1/home/dumpsys-window-displays.txt`),
+      ),
+    ).toMatchObject({
+      current: { width: 1080, height: 2400 },
+      rotation: 0,
+      appOrientation: 'SCREEN_ORIENTATION_NOSENSOR',
+    })
+  })
+})
+
+describe('parseWindowDisplays', () => {
+  it.each([
+    [0, 1080, 2400],
+    [3, 2400, 1080],
+  ])('reads rotation %i', (rotation, width, height) => {
+    expect(
+      parseWindowDisplays(
+        recordedText(
+          `api-36/none/rotation-${rotation}/settings/dumpsys-window-displays.txt`,
+        ),
+      ),
+    ).toMatchObject({ rotation, current: { width, height } })
+  })
+
+  // No recording has an override, so this line is written by hand in the
+  // format of `DisplayContent.dump`.
+  it('uses the override size and density from base=', () => {
+    const text = [
+      '  Display: mDisplayId=0 (organized)',
+      '    init=1080x2400 420dpi mMinSizeOfResizeableTaskDp=220 base=1080x2340 480dpi cur=2340x1080 app=2340x1080',
+      '    mRotation=1 mDeferredRotationPauseCount=0',
+    ].join('\n')
+
+    expect(parseWindowDisplays(text)).toMatchObject({
+      natural: { width: 1080, height: 2340 },
+      density: 480,
+      current: { width: 2340, height: 1080 },
+    })
+  })
+
+  it('reads the display that has the id', () => {
+    const text = [
+      '  Display: mDisplayId=2',
+      '    init=720x1280 320dpi cur=720x1280 app=720x1280',
+      '    mRotation=0 mDeferredRotationPauseCount=0',
+      '  Display: mDisplayId=0',
+      '    init=1080x2400 420dpi cur=2400x1080 app=2400x1080',
+      '    mRotation=1 mDeferredRotationPauseCount=0',
+    ].join('\n')
+
+    expect(parseWindowDisplays(text)).toMatchObject({
+      density: 420,
+      rotation: 1,
+    })
+    expect(parseWindowDisplays(text, 2)).toMatchObject({
+      density: 320,
+      rotation: 0,
+    })
+    expect(parseWindowDisplays(text, 5)).toBeUndefined()
+  })
+
+  it('gives undefined when the rotation is missing', () => {
+    expect(
+      parseWindowDisplays(
+        '  Display: mDisplayId=0\n    init=1080x2400 420dpi cur=1080x2400\n',
+      ),
+    ).toBeUndefined()
+  })
+})
 
 describe('parseAdbDevices', () => {
   it('reads the long form, with the fields of each device', () => {

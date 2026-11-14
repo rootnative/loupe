@@ -1,0 +1,2 @@
+# The fixtures keep the bytes that the tools wrote, CRLF line ends included.
+packages/loupe/fixtures/** -text

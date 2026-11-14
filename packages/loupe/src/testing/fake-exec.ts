@@ -48,13 +48,27 @@ export function fakeContext(
 /**
  * A handler that answers from a table. Each key is the tool name and its
  * arguments, for example `adb -s emulator-5554 shell getprop`. A `LoupeError`
- * in the table fails that call.
+ * in the table fails that call. A list answers the calls in order, and its
+ * last item answers each call after that.
  */
 export function byCommand(
-  runs: Readonly<Record<string, FakeRun | LoupeError>>,
+  runs: Readonly<
+    Record<string, FakeRun | LoupeError | readonly (FakeRun | LoupeError)[]>
+  >,
 ): FakeHandler {
+  const counts = new Map<string, number>()
+
   return ({ file, args }) => {
-    const run = runs[[path.parse(file).name, ...args].join(' ')]
+    const key = [path.parse(file).name, ...args].join(' ')
+    const entry = runs[key]
+    let run: FakeRun | LoupeError | undefined
+    if (Array.isArray(entry)) {
+      const count = counts.get(key) ?? 0
+      counts.set(key, count + 1)
+      run = entry[Math.min(count, entry.length - 1)]
+    } else {
+      run = entry as FakeRun | LoupeError | undefined
+    }
     if (run instanceof LoupeError) throw run
     return run
   }

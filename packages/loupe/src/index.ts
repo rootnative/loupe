@@ -8,6 +8,7 @@ export {
 } from './core/command'
 export { createContext, type CommandContext } from './core/context'
 export { type Device, type DeviceState } from './core/device'
+export { type DisplayState, type Orientation } from './core/display'
 export { ERROR_CODES, LoupeError, type ErrorCode } from './core/errors'
 export { type Exec, type ExecOptions, type ExecResult } from './core/exec'
 export {

@@ -5,7 +5,41 @@ import {
   fakeContext,
   missingTool,
 } from '../../testing/fake-exec'
+import { API_LEVELS, recorded } from '../../testing/fixtures'
 import { listAndroidDevices, selectAndroidDevice } from './devices'
+
+describe.each(API_LEVELS)('listAndroidDevices, on API %i', (level) => {
+  it('lists the emulator with its AVD, model, and API level', async () => {
+    const api = `api-${level}`
+    const { context } = fakeContext(
+      byCommand({
+        'adb devices -l': recorded(`${api}/host/adb-devices-l.txt`),
+        'adb -s emulator-5554 emu avd name': recorded(
+          `${api}/host/emu-avd-name.txt`,
+        ),
+        'adb -s emulator-5554 shell getprop': recorded(
+          `${api}/device/getprop.txt`,
+        ),
+        'emulator -list-avds': recorded(`${api}/host/emulator-list-avds.txt`),
+      }),
+    )
+
+    expect(await listAndroidDevices(context)).toEqual({
+      devices: [
+        {
+          platform: 'android',
+          kind: 'emulator',
+          serial: 'emulator-5554',
+          avd: 'test',
+          model: expect.stringMatching(/^sdk_gphone/),
+          state: 'ready',
+          apiLevel: level,
+        },
+      ],
+      warnings: [],
+    })
+  })
+})
 
 function adbDevices(...lines: string[]): FakeRun {
   return { stdout: ['List of devices attached', ...lines, ''].join('\n') }

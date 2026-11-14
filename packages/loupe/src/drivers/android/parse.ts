@@ -1,9 +1,25 @@
+import { type Size } from '../../core/units'
+
 export interface AdbDeviceEntry {
   serial: string
   /** The state in the words of adb, for example `device` or `unauthorized`. */
   adbState: string
   /** The `key:value` fields of `adb devices -l`, for example `model`. */
   fields: Record<string, string>
+}
+
+/** One display, as `dumpsys window displays` gives it. Sizes are in px. */
+export interface WindowDisplay {
+  /** The natural orientation, with a size override if there is one. */
+  natural: Size
+  /** In dpi, with a density override if there is one. */
+  density: number
+  /** The current orientation. */
+  current: Size
+  /** Quarter turns from the natural orientation (`Surface.ROTATION_*`). */
+  rotation: number
+  /** What the app in front asks for, for example `SCREEN_ORIENTATION_PORTRAIT`. */
+  appOrientation?: string
 }
 
 const FIELD = /^([a-z_]+):(\S*)$/
@@ -65,6 +81,47 @@ export function parseGetprop(text: string): Record<string, string> {
  */
 export function parseAvdList(text: string): string[] {
   return lines(text).filter((line) => AVD_NAME.test(line))
+}
+
+const DISPLAY_HEADER = /^\s*Display: mDisplayId=(\d+)/gm
+
+/** The part of the dump about one display, up to the next display. */
+function displayBlock(text: string, displayId: number): string | undefined {
+  const headers = [...text.matchAll(DISPLAY_HEADER)]
+  if (headers.length === 0) return text
+  const index = headers.findIndex((match) => Number(match[1]) === displayId)
+  if (index === -1) return undefined
+  return text.slice(headers[index]?.index, headers[index + 1]?.index)
+}
+
+/**
+ * Reads one display from `dumpsys window displays`. The line with `init=`
+ * holds the natural size and density, `base=` when an override is set, and
+ * `cur=`, the size in the current rotation. `mRotation=` is the rotation of
+ * the screen now. The user rotation setting can differ from it.
+ */
+export function parseWindowDisplays(
+  text: string,
+  displayId = 0,
+): WindowDisplay | undefined {
+  const block = displayBlock(text, displayId)
+  const sizeLine = block?.split(/\r?\n/).find((line) => /^\s*init=/.test(line))
+  if (!block || !sizeLine) return undefined
+
+  const natural =
+    /\bbase=(\d+)x(\d+) (\d+)dpi/.exec(sizeLine) ??
+    /\binit=(\d+)x(\d+) (\d+)dpi/.exec(sizeLine)
+  const current = /\bcur=(\d+)x(\d+)/.exec(sizeLine)
+  const rotation = /\bmRotation=(\d)\b/.exec(block)
+  if (!natural || !current || !rotation) return undefined
+
+  return {
+    natural: { width: Number(natural[1]), height: Number(natural[2]) },
+    density: Number(natural[3]),
+    current: { width: Number(current[1]), height: Number(current[2]) },
+    rotation: Number(rotation[1]),
+    appOrientation: /\bmCurrentAppOrientation=([A-Z_]+)/.exec(block)?.[1],
+  }
 }
 
 /** Reads `adb emu avd name`: the name, then "OK". */
