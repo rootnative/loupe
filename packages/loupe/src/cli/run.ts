@@ -1,5 +1,6 @@
 import { registry as defaultRegistry } from '../commands'
 import { type Registry } from '../core/command'
+import { type CommandContext, createContext } from '../core/context'
 import { LoupeError } from '../core/errors'
 import { type CommandResult, runCommand } from '../core/run-command'
 import { version } from '../version'
@@ -37,6 +38,7 @@ export async function run(
   argv: readonly string[],
   io: CliIO = defaultIO,
   registry: Registry = defaultRegistry,
+  context: CommandContext = createContext(),
 ): Promise<number> {
   // The last of `--json` and `--no-json` wins. With neither, a terminal gets
   // text and a pipe gets JSON, so an agent never needs the flag.
@@ -88,5 +90,5 @@ export async function run(
     return EXIT_OK
   }
 
-  return report(await runCommand(registry, command.name, parsed.input))
+  return report(await runCommand(registry, command.name, parsed.input, context))
 }

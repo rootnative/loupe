@@ -2,6 +2,9 @@ export const ERROR_CODES = [
   'unknown_command',
   'invalid_input',
   'invalid_output',
+  'tool_missing',
+  'tool_failed',
+  'timeout',
   'internal',
 ] as const
 

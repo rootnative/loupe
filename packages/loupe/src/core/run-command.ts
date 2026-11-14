@@ -1,5 +1,6 @@
 import { type z } from 'zod'
 import { type Registry } from './command'
+import { type CommandContext, createContext } from './context'
 import { type ErrorCode, LoupeError } from './errors'
 
 export interface CommandSuccess<T = unknown> {
@@ -38,6 +39,7 @@ export async function runCommand(
   registry: Registry,
   name: string,
   input: unknown,
+  context: CommandContext = createContext(),
 ): Promise<CommandResult> {
   const command = registry.get(name)
   if (!command) {
@@ -51,7 +53,7 @@ export async function runCommand(
 
   let raw: unknown
   try {
-    raw = await command.run(parsedInput.data)
+    raw = await command.run(parsedInput.data, context)
   } catch (error) {
     if (error instanceof LoupeError) {
       return failure(name, error.code, error.message)

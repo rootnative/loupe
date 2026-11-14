@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 import { z } from 'zod'
 import pkg from '../../package.json'
 import { createRegistry, defineCommand } from '../core/command'
+import { fakeContext, missingTool } from '../testing/fake-exec'
 import { EXIT_FAILED, EXIT_OK, EXIT_USAGE, run } from './run'
 
 function capture(isTTY = false) {
@@ -96,6 +97,33 @@ describe('run, JSON output', () => {
       error: { code: 'internal', message: 'No such place.' },
     })
     expect(err).toEqual([])
+  })
+
+  it('runs the command with the context, and exits with 1 for a missing tool', async () => {
+    const callTool = defineCommand({
+      name: 'call-tool',
+      summary: 'Calls a tool',
+      input: z.object({}),
+      output: z.object({}),
+      run: async (_input, { exec }) => {
+        await exec('tool', [])
+        return {}
+      },
+    })
+    const { context, calls } = fakeContext(({ file }) => {
+      throw missingTool(file)
+    })
+    const { io, out } = capture()
+
+    expect(
+      await run(['call-tool'], io, createRegistry([callTool]), context),
+    ).toBe(EXIT_FAILED)
+    expect(JSON.parse(out[0] ?? '')).toEqual({
+      ok: false,
+      command: 'call-tool',
+      error: { code: 'tool_missing', message: 'loupe can\'t find "tool".' },
+    })
+    expect(calls).toHaveLength(1)
   })
 
   it.each([

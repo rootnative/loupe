@@ -1,4 +1,5 @@
 import { type z } from 'zod'
+import { type CommandContext } from './context'
 
 /**
  * One command, defined once. The CLI and the MCP server are both made from
@@ -21,7 +22,10 @@ export interface Command<
   positionals?: readonly (keyof z.output<I> & string)[]
   // `run` and `format` use the method form on purpose. A method parameter is
   // bivariant, so a list can hold commands with different input types.
-  run(input: z.output<I>): Promise<z.input<O>> | z.input<O>
+  run(
+    input: z.output<I>,
+    context: CommandContext,
+  ): Promise<z.input<O>> | z.input<O>
   /** A short summary for a person at a terminal. JSON is the default. */
   format?(data: z.output<O>): string
 }

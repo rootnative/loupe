@@ -6,7 +6,9 @@ export {
   type Command,
   type Registry,
 } from './core/command'
+export { createContext, type CommandContext } from './core/context'
 export { ERROR_CODES, LoupeError, type ErrorCode } from './core/errors'
+export { type Exec, type ExecOptions, type ExecResult } from './core/exec'
 export {
   runCommand,
   type CommandFailure,

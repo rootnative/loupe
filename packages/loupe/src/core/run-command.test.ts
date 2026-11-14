@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { z } from 'zod'
+import { fakeContext } from '../testing/fake-exec'
 import { createRegistry, defineCommand } from './command'
 import { LoupeError } from './errors'
 import { runCommand } from './run-command'
@@ -65,6 +66,31 @@ describe('runCommand', () => {
       command: 'greet-user',
       data: { text: 'Hello, you' },
     })
+  })
+
+  it('passes the context to the command', async () => {
+    const readTool = defineCommand({
+      name: 'read-tool',
+      summary: 'Reads a tool and a variable',
+      input: z.object({}),
+      output: z.object({ out: z.string(), home: z.string().optional() }),
+      run: async (_input, { exec, env }) => ({
+        out: (await exec('tool', ['--print'])).stdout.toString(),
+        home: env.TOOL_HOME,
+      }),
+    })
+    const { context, calls } = fakeContext(() => ({ stdout: 'printed' }), {
+      TOOL_HOME: '/opt/tool',
+    })
+
+    expect(
+      await runCommand(createRegistry([readTool]), 'read-tool', {}, context),
+    ).toEqual({
+      ok: true,
+      command: 'read-tool',
+      data: { out: 'printed', home: '/opt/tool' },
+    })
+    expect(calls).toEqual([{ file: 'tool', args: ['--print'] }])
   })
 
   it('fails for a command that does not exist', async () => {
