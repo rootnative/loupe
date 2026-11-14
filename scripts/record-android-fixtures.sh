@@ -76,11 +76,15 @@ restore() {
 }
 
 # rotate <rotation> <dir>: 0 is the natural orientation, 1 and 3 are the two
-# landscapes. `wm user-rotation` doesn't exist on every API level, so the
-# setting is written too.
+# landscapes. Android 11 has no `wm user-rotation`, so there the script turns
+# auto-rotate off and writes the user rotation, each time: on Android 11,
+# auto-rotate was on again after one write at the start.
 rotate() {
   capture "$2/user-rotation-lock.txt" "$adb" shell wm user-rotation lock "$1"
-  "$adb" shell settings put system user_rotation "$1"
+  if [ -f "$out/$2/user-rotation-lock.txt.exit" ]; then
+    "$adb" shell settings put system accelerometer_rotation 0
+    "$adb" shell settings put system user_rotation "$1"
+  fi
   sleep 3
 }
 
@@ -90,6 +94,7 @@ display() {
   capture "$1/wm-density.txt" "$adb" shell wm density
   capture "$1/wm-user-rotation.txt" "$adb" shell wm user-rotation
   capture "$1/settings-user-rotation.txt" "$adb" shell settings get system user_rotation
+  capture "$1/settings-accelerometer-rotation.txt" "$adb" shell settings get system accelerometer_rotation
   capture "$1/dumpsys-window-displays.txt" "$adb" shell dumpsys window displays
   capture "$1/dumpsys-window.txt" "$adb" shell dumpsys window
   capture "$1/dumpsys-display.txt" "$adb" shell dumpsys display
@@ -135,6 +140,7 @@ capture device/getprop.txt "$adb" shell getprop
 capture device/overlays.txt "$adb" shell cmd overlay list
 capture device/wm-help.txt "$adb" shell wm help
 capture device/uiautomator-help.txt "$adb" shell uiautomator help
+capture device/accelerometer-rotation-at-start.txt "$adb" shell settings get system accelerometer_rotation
 
 # Only this script turns the screen from here on.
 "$adb" shell settings put system accelerometer_rotation 0
@@ -147,14 +153,18 @@ for cutout in none "${cutouts[@]}"; do
 
   for rotation in 0 1 3; do
     dir=$cutout/rotation-$rotation
-    rotate "$rotation" "$dir"
-    home
-    display "$dir"
-    screen "$dir/home"
 
+    # An app that can turn is in front when the screen turns, as with the
+    # app under test.
     capture "$dir/am-start-settings.txt" "$adb" shell am start -W -a android.settings.SETTINGS
-    sleep 3
+    rotate "$rotation" "$dir"
+    display "$dir/settings"
     screen "$dir/settings"
+
+    # The launcher holds portrait, so the display turns back here.
+    home
+    display "$dir/home"
+    screen "$dir/home"
   done
 
   if [ "$cutout" != none ]; then
