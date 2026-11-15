@@ -1,12 +1,13 @@
 #!/usr/bin/env bash
 # Records the raw adb output that the Android driver parses, so each parser
-# gets test fixtures for each API level. The "Android fixtures" workflow runs
-# it in CI.
+# gets test fixtures for each API level. It also times the touch input, and
+# checks that a tap lands where the `ui` dump puts the element. The "Android
+# fixtures" workflow runs it in CI.
 #
 # Run it on one booted emulator with a clean system image. Don't run it on a
 # phone: the dumps and the screenshots would hold personal data. It changes
-# the rotation and the cutout overlay of the emulator. At the end it sets the
-# rotation back and turns the cutout overlays off.
+# the rotation and the cutout overlay of the emulator, and taps in Settings.
+# At the end it sets the rotation back and turns the cutout overlays off.
 #
 # Usage: scripts/record-android-fixtures.sh <out-dir>
 # With more than one device, set ANDROID_SERIAL to the emulator first.
@@ -115,6 +116,44 @@ home() {
   sleep 2
 }
 
+settings() {
+  "$adb" shell am start -W -a android.settings.SETTINGS >/dev/null
+  sleep 3
+}
+
+# timed <file> <command>: runs the command 5 times in one shell on the
+# device, with a time stamp before each run and one after the last. A stamp
+# is $EPOCHREALTIME (mksh) and `date +%s%N`, in case one of them is missing.
+timed() {
+  local stamp='echo "stamp ${EPOCHREALTIME:-} $(date +%s%N)"'
+  capture "$1" "$adb" shell "for i in 1 2 3 4 5; do $stamp; $2; done; $stamp"
+}
+
+# host_timed <file> <command> [args...]: the same, on the host, in ns.
+host_timed() {
+  local name=$1
+  local file=$out/$name
+  shift
+  mkdir -p "$(dirname "$file")"
+  for _ in 1 2 3 4 5; do
+    date +%s%N
+    "$@" >/dev/null 2>&1
+  done >"$file"
+  date +%s%N >>"$file"
+  echo "$name: timed"
+}
+
+# centre_of <ui-file> <text>: "x y", the centre in px of the first node with
+# that text (XML-escaped) in a uiautomator dump. Empty when it isn't there.
+centre_of() {
+  local bounds left top right bottom
+  bounds=$(grep -o "text=\"$2\"[^>]*bounds=\"[^\"]*\"" "$1" | head -1 |
+    grep -o 'bounds="[^"]*"' | sed 's/[^0-9]/ /g')
+  [ -n "$bounds" ] || return 0
+  read -r left top right bottom <<<"$bounds"
+  echo "$(((left + right) / 2)) $(((top + bottom) / 2))"
+}
+
 if ! is_emulator; then
   echo "No emulator found. This script runs on one emulator only. With more than one device, set ANDROID_SERIAL." >&2
   exit 1
@@ -173,7 +212,10 @@ for cutout in none "${cutouts[@]}"; do
   fi
 done
 
-# One-off cases, in the natural orientation with no cutout.
+# One-off cases, in the natural orientation with no cutout. Settings is in
+# front for the rotate: Android 14 and later put back a rotation that was
+# written while the launcher was in front.
+settings
 rotate 0 extra
 home
 capture extra/ui-compressed.txt "$adb" exec-out uiautomator dump --compressed /dev/tty
@@ -197,6 +239,61 @@ capture extra/am-start-no-handler.txt "$adb" shell am start -W -a android.intent
 capture extra/am-start-https.txt "$adb" shell am start -W -a android.intent.action.VIEW -d https://example.com
 sleep 5
 screen extra/https
+home
+
+# Touch input. A double-tap needs 40 to 300 ms between the taps, and a drag
+# needs events with no gap, so the cost of one call decides the method.
+capture touch/input-help.txt "$adb" shell input
+capture touch/getevent-lp.txt "$adb" shell getevent -lp
+
+# A tap in landscape must land where the `ui` dump puts the element: a tap
+# on "Network & internet" opens the network page.
+settings
+rotate 1 touch/landscape
+capture touch/landscape/before/dumpsys-window-displays.txt "$adb" shell dumpsys window displays
+capture touch/landscape/before.ui-tty.txt "$adb" exec-out uiautomator dump /dev/tty
+target=$(centre_of "$out/touch/landscape/before.ui-tty.txt" 'Network &amp; internet')
+echo "$target" >"$out/touch/landscape/tap-target.txt"
+if [ -n "$target" ]; then
+  read -r x y <<<"$target"
+  capture touch/landscape/input-tap.txt "$adb" shell input tap "$x" "$y"
+  sleep 3
+  capture touch/landscape/after/dumpsys-window-displays.txt "$adb" shell dumpsys window displays
+  screen touch/landscape/after
+  "$adb" shell input keyevent KEYCODE_BACK
+  sleep 2
+fi
+rotate 0 touch/portrait
+
+# The time of one call, with Settings in front. The taps hit the status bar.
+timed touch/time-input-tap.txt 'input tap 5 5'
+timed touch/time-motionevent.txt 'input motionevent DOWN 5 5; input motionevent UP 5 5'
+capture touch/input-tap-fraction.txt "$adb" shell input tap 5.5 5.5
+host_timed touch/time-host-adb-shell.txt "$adb" shell true
+host_timed touch/time-host-emu-event.txt "$adb" emu event send EV_SYN:0:0
+
+# The same tap through the emulator console, in portrait. The console takes
+# raw touchscreen units, 0 to 32767 across the natural size. It runs last:
+# a touch that stays down can't spoil the other recordings.
+capture touch/console/before/dumpsys-window-displays.txt "$adb" shell dumpsys window displays
+capture touch/console/before.ui-tty.txt "$adb" exec-out uiautomator dump /dev/tty
+target=$(centre_of "$out/touch/console/before.ui-tty.txt" 'Network &amp; internet')
+read -r width height <<<"$("$adb" shell wm size | grep -o '[0-9]*x[0-9]*' | head -1 | tr x ' ')"
+echo "$target in ${width}x$height" >"$out/touch/console/tap-target.txt"
+if [ -n "$target" ] && [ -n "${width:-}" ]; then
+  read -r x y <<<"$target"
+  raw_x=$((x * 32768 / width))
+  raw_y=$((y * 32768 / height))
+  capture touch/console/event-down.txt "$adb" emu event send \
+    EV_ABS:ABS_MT_SLOT:0 EV_ABS:ABS_MT_TRACKING_ID:1 \
+    "EV_ABS:ABS_MT_POSITION_X:$raw_x" "EV_ABS:ABS_MT_POSITION_Y:$raw_y" \
+    EV_ABS:ABS_MT_PRESSURE:50 EV_KEY:BTN_TOUCH:1 EV_SYN:0:0
+  capture touch/console/event-up.txt "$adb" emu event send \
+    EV_ABS:ABS_MT_TRACKING_ID:-1 EV_KEY:BTN_TOUCH:0 EV_SYN:0:0
+  sleep 3
+  capture touch/console/after/dumpsys-window-displays.txt "$adb" shell dumpsys window displays
+  screen touch/console/after
+fi
 home
 
 failed=$(find "$out" -name '*.exit' | wc -l | tr -d ' ')
