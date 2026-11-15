@@ -48,6 +48,29 @@ function focus() {
   return /mCurrentFocus=Window\{\S+ \S+ ([^}]+)\}/.exec(dump)?.[1] ?? ''
 }
 
+/**
+ * Waits up to 15 s for a window whose title has `part`, and gives the last
+ * title and the wait. On a busy emulator a new page can take a few seconds,
+ * and no window has the focus in that time.
+ */
+async function waitForFocus(part) {
+  const start = Date.now()
+  let seen = focus()
+  while (!seen.includes(part) && Date.now() - start < 15_000) {
+    await sleep(500)
+    seen = focus()
+  }
+  return { seen: seen || 'no window', ms: Date.now() - start }
+}
+
+/** A screenshot through adb, for a check that failed. */
+function keepScreen(name) {
+  const result = spawnSync(ADB, ['exec-out', 'screencap', '-p'], {
+    timeout: 60_000,
+  })
+  if (result.status === 0) writeFileSync(path.join(out, name), result.stdout)
+}
+
 /** Runs one command, keeps its JSON, and gives the result and the exit code. */
 function loupe(...args) {
   const result = spawnSync(process.execPath, [BIN, ...args, '--json'], {
@@ -189,18 +212,22 @@ check(
 )
 
 const tap = loupe('tap', '--text', 'Network & internet', '--app', SETTINGS)
-await sleep(2000)
+const opened = await waitForFocus('SubSettings')
 check(
-  tap.ok && focus().includes('SubSettings'),
-  'tap --text: the network page opens',
+  tap.ok && opened.seen.includes('SubSettings'),
+  `tap --text: the network page opens (${opened.seen}, after ${opened.ms} ms)`,
 )
+if (!opened.seen.includes('SubSettings')) keepScreen('after-tap.png')
 
 const back = loupe('key', 'back', '--app', SETTINGS)
-await sleep(2000)
+const closed = await waitForFocus('SettingsHomepageActivity')
 check(
-  back.ok && focus().includes('SettingsHomepageActivity'),
-  'key back: Settings is on its home page again',
+  back.ok && closed.seen.includes('SettingsHomepageActivity'),
+  `key back: Settings is on its home page again (${closed.seen}, after ${closed.ms} ms)`,
 )
+if (!closed.seen.includes('SettingsHomepageActivity')) {
+  keepScreen('after-back.png')
+}
 
 const upright = loupe('rotate', 'portrait')
 check(
