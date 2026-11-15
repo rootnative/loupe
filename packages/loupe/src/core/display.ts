@@ -40,3 +40,17 @@ export const displaySchema = z.object({
 })
 
 export type DisplayState = z.infer<typeof displaySchema>
+
+function round(value: number): number {
+  return Math.round(value * 100) / 100
+}
+
+/** One line for a person, with dp rounded to 2 places. */
+export function describeDisplay({
+  orientation,
+  size,
+  pixels,
+  scale,
+}: DisplayState): string {
+  return `${orientation}: ${round(size.width)} × ${round(size.height)} dp (${pixels.width} × ${pixels.height} px, scale ${scale})`
+}

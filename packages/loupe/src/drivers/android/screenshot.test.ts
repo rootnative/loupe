@@ -1,0 +1,72 @@
+import { describe, expect, it } from 'vitest'
+import { byCommand, type FakeRun, fakeContext } from '../../testing/fake-exec'
+import { recorded } from '../../testing/fixtures'
+import { selectAndroidDevice } from './devices'
+import { captureAndroid } from './screenshot'
+
+const ADB = 'adb -s emulator-5554'
+
+function emulator(level: number, screencap: FakeRun) {
+  const api = `api-${level}`
+  const { context } = fakeContext(
+    byCommand({
+      'adb devices -l': recorded(`${api}/host/adb-devices-l.txt`),
+      [`${ADB} shell getprop`]: recorded(`${api}/device/getprop.txt`),
+      [`${ADB} shell dumpsys window displays`]: recorded(
+        `${api}/none/rotation-1/settings/dumpsys-window-displays.txt`,
+      ),
+      [`${ADB} exec-out screencap -p`]: screencap,
+    }),
+  )
+  return () => selectAndroidDevice(context)
+}
+
+describe.each([30, 36])('captureAndroid, on API %i', (level) => {
+  it('gives the PNG upright in landscape, with the display state', async () => {
+    const png = recorded(`api-${level}/none/rotation-1/settings.png`)
+    const target = emulator(level, png)
+
+    const capture = await captureAndroid(await target())
+
+    expect(capture.png).toEqual(png.stdout)
+    expect(capture.pixels).toEqual({ width: 2400, height: 1080 })
+    expect(capture.display).toMatchObject({
+      orientation: 'landscape-left',
+      pixels: { width: 2400, height: 1080 },
+      scale: 2.625,
+    })
+  })
+})
+
+describe('captureAndroid', () => {
+  it('fails when screencap gives no PNG', async () => {
+    const target = emulator(36, { stdout: 'Error: capture failed\n' })
+
+    await expect(captureAndroid(await target())).rejects.toMatchObject({
+      code: 'tool_failed',
+      message: "screencap on emulator-5554 didn't give a PNG.",
+    })
+  })
+
+  it('refuses a real device, and takes nothing', async () => {
+    const { context, calls } = fakeContext(
+      byCommand({
+        'adb devices -l': {
+          stdout:
+            'List of devices attached\nPHONE123               device product:phone model:Phone_Model device:phone transport_id:4\n\n',
+        },
+        'adb -s PHONE123 shell getprop': {
+          stdout: '[ro.build.version.sdk]: [35]\n[sys.boot_completed]: [1]\n',
+        },
+      }),
+    )
+
+    await expect(
+      captureAndroid(await selectAndroidDevice(context)),
+    ).rejects.toMatchObject({ code: 'unsupported' })
+    expect(calls.map((call) => call.args.join(' '))).toEqual([
+      'devices -l',
+      '-s PHONE123 shell getprop',
+    ])
+  })
+})
