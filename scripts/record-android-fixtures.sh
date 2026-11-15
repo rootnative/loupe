@@ -1,13 +1,14 @@
 #!/usr/bin/env bash
 # Records the raw adb output that the Android driver parses, so each parser
 # gets test fixtures for each API level. It also times the touch input, and
-# checks that a tap lands where the `ui` dump puts the element. The "Android
-# fixtures" workflow runs it in CI.
+# checks that a tap lands where the `ui` dump puts the element, through
+# `input` and through the emulator console. The "Android fixtures" workflow
+# runs it in CI.
 #
 # Run it on one booted emulator with a clean system image. Don't run it on a
 # phone: the dumps and the screenshots would hold personal data. It changes
-# the rotation and the cutout overlay of the emulator, and taps in Settings.
-# At the end it sets the rotation back and turns the cutout overlays off.
+# the rotation, the cutout overlay and the pointer location of the emulator,
+# and touches Settings. At the end it puts these settings back.
 #
 # Usage: scripts/record-android-fixtures.sh <out-dir>
 # With more than one device, set ANDROID_SERIAL to the emulator first.
@@ -74,6 +75,7 @@ restore() {
   done
   restore_setting user_rotation "$saved_rotation"
   restore_setting accelerometer_rotation "$saved_auto_rotation"
+  restore_setting pointer_location "$saved_pointer_location"
 }
 
 # rotate <rotation> <dir>: 0 is the natural orientation, 1 and 3 are the two
@@ -161,6 +163,7 @@ fi
 
 saved_rotation=$(setting user_rotation)
 saved_auto_rotation=$(setting accelerometer_rotation)
+saved_pointer_location=$(setting pointer_location)
 trap restore EXIT
 
 mkdir -p "$out"
@@ -272,27 +275,140 @@ capture touch/input-tap-fraction.txt "$adb" shell input tap 5.5 5.5
 host_timed touch/time-host-adb-shell.txt "$adb" shell true
 host_timed touch/time-host-emu-event.txt "$adb" emu event send EV_SYN:0:0
 
-# The same tap through the emulator console, in portrait. The console takes
-# raw touchscreen units, 0 to 32767 across the natural size. It runs last:
-# a touch that stays down can't spoil the other recordings.
-capture touch/console/before/dumpsys-window-displays.txt "$adb" shell dumpsys window displays
-capture touch/console/before.ui-tty.txt "$adb" exec-out uiautomator dump /dev/tty
-target=$(centre_of "$out/touch/console/before.ui-tty.txt" 'Network &amp; internet')
+# Touches through the emulator console. The console takes raw touchscreen
+# units, 0 to 32767 across the natural size, and Android turns them by the
+# rotation. They run last: a touch that stays down can't spoil the other
+# recordings.
 read -r width height <<<"$("$adb" shell wm size | grep -o '[0-9]*x[0-9]*' | head -1 | tr x ' ')"
-echo "$target in ${width}x$height" >"$out/touch/console/tap-target.txt"
-if [ -n "$target" ] && [ -n "${width:-}" ]; then
-  read -r x y <<<"$target"
+
+# raw_of <rotation> <x> <y>: "x y" in console units, for a point in px of
+# the current orientation. It turns the point back to the natural
+# orientation, the reverse of the touch mapper in the Android source.
+raw_of() {
+  local x y raw_x raw_y
+  case $1 in
+    1) x=$((width - $3)) y=$2 ;;
+    2) x=$((width - $2)) y=$((height - $3)) ;;
+    3) x=$3 y=$((height - $2)) ;;
+    *) x=$2 y=$3 ;;
+  esac
   raw_x=$((x * 32768 / width))
   raw_y=$((y * 32768 / height))
-  capture touch/console/event-down.txt "$adb" emu event send \
+  echo "$((raw_x > 32767 ? 32767 : raw_x)) $((raw_y > 32767 ? 32767 : raw_y))"
+}
+
+# console_tap <dir> <raw-x> <raw-y>: one finger down, and up again.
+console_tap() {
+  capture "$1/event-down.txt" "$adb" emu event send \
     EV_ABS:ABS_MT_SLOT:0 EV_ABS:ABS_MT_TRACKING_ID:1 \
-    "EV_ABS:ABS_MT_POSITION_X:$raw_x" "EV_ABS:ABS_MT_POSITION_Y:$raw_y" \
+    "EV_ABS:ABS_MT_POSITION_X:$2" "EV_ABS:ABS_MT_POSITION_Y:$3" \
     EV_ABS:ABS_MT_PRESSURE:50 EV_KEY:BTN_TOUCH:1 EV_SYN:0:0
-  capture touch/console/event-up.txt "$adb" emu event send \
+  capture "$1/event-up.txt" "$adb" emu event send \
     EV_ABS:ABS_MT_TRACKING_ID:-1 EV_KEY:BTN_TOUCH:0 EV_SYN:0:0
-  sleep 3
-  capture touch/console/after/dumpsys-window-displays.txt "$adb" shell dumpsys window displays
-  screen touch/console/after
+}
+
+if [ -n "${width:-}" ] && [ -n "${height:-}" ]; then
+  # The tap of round 3: portrait, on "Network & internet".
+  capture touch/console/before/dumpsys-window-displays.txt "$adb" shell dumpsys window displays
+  capture touch/console/before.ui-tty.txt "$adb" exec-out uiautomator dump /dev/tty
+  target=$(centre_of "$out/touch/console/before.ui-tty.txt" 'Network &amp; internet')
+  echo "$target in ${width}x$height" >"$out/touch/console/tap-target.txt"
+  if [ -n "$target" ]; then
+    read -r x y <<<"$target"
+    read -r raw_x raw_y <<<"$(raw_of 0 "$x" "$y")"
+    console_tap touch/console "$raw_x" "$raw_y"
+    sleep 3
+    capture touch/console/after/dumpsys-window-displays.txt "$adb" shell dumpsys window displays
+    screen touch/console/after
+    "$adb" shell input keyevent KEYCODE_BACK
+    sleep 2
+  fi
+
+  # The console's answer to an event that it doesn't know, and adb's answer
+  # when the emulator is gone.
+  capture touch/console/event-unknown.txt "$adb" emu event send EV_ABS:ABS_LOUPE:1
+  capture touch/console/no-emulator.txt "$adb" -s emulator-5998 emu event send EV_SYN:0:0
+
+  # The same row in both landscapes, tapped in the middle of the screen
+  # width. The row spans the width, and from the middle a point that Android
+  # doesn't turn lands off the screen, and one turned the wrong way lands on
+  # another row.
+  for rotation in 1 3; do
+    dir=touch/console/rotation-$rotation
+    settings
+    rotate "$rotation" "$dir"
+    capture "$dir/before/dumpsys-window-displays.txt" "$adb" shell dumpsys window displays
+    capture "$dir/before.ui-tty.txt" "$adb" exec-out uiautomator dump /dev/tty
+    target=$(centre_of "$out/$dir/before.ui-tty.txt" 'Network &amp; internet')
+    if [ -n "$target" ]; then
+      read -r _ y <<<"$target"
+      x=$((height / 2))
+      read -r raw_x raw_y <<<"$(raw_of "$rotation" "$x" "$y")"
+      echo "$x $y in ${height}x$width, raw $raw_x $raw_y" >"$out/$dir/tap-target.txt"
+      console_tap "$dir" "$raw_x" "$raw_y"
+      sleep 3
+      capture "$dir/after/dumpsys-window-displays.txt" "$adb" shell dumpsys window displays
+      screen "$dir/after"
+      "$adb" shell input keyevent KEYCODE_BACK
+      sleep 2
+    fi
+  done
+
+  # A two-finger pinch in 3 rotations, with Android's pointer location on:
+  # the screenshot after it shows the trail of each finger, and `dumpsys
+  # input` while both fingers are down shows the points that Android got.
+  # The fingers move apart on a slant, so the list scrolls and no row gets a
+  # tap. Each step is one console send with both fingers.
+  capture touch/pinch/pointer-location-on.txt "$adb" shell settings put system pointer_location 1
+  for rotation in 0 1 3; do
+    dir=touch/pinch/rotation-$rotation
+    mkdir -p "$out/$dir"
+    settings
+    rotate "$rotation" "$dir"
+    capture "$dir/before/dumpsys-window-displays.txt" "$adb" shell dumpsys window displays
+    if [ $((rotation % 2)) -eq 1 ]; then
+      centre_x=$((height / 2)) centre_y=$((width / 2))
+    else
+      centre_x=$((width / 2)) centre_y=$((height / 2))
+    fi
+    for step in 0 1 2 3 4 5 6 7 8 9 10; do
+      spread=$((150 + step * 30))
+      first_x=$((centre_x - spread)) first_y=$((centre_y - spread / 2))
+      second_x=$((centre_x + spread)) second_y=$((centre_y + spread / 2))
+      read -r ax ay <<<"$(raw_of "$rotation" "$first_x" "$first_y")"
+      read -r bx by <<<"$(raw_of "$rotation" "$second_x" "$second_y")"
+      echo "$step: $first_x $first_y, $second_x $second_y; raw $ax $ay, $bx $by" >>"$out/$dir/points.txt"
+      if [ "$step" -eq 0 ]; then
+        events=(
+          EV_ABS:ABS_MT_SLOT:0 EV_ABS:ABS_MT_TRACKING_ID:1
+          "EV_ABS:ABS_MT_POSITION_X:$ax" "EV_ABS:ABS_MT_POSITION_Y:$ay" EV_ABS:ABS_MT_PRESSURE:50
+          EV_ABS:ABS_MT_SLOT:1 EV_ABS:ABS_MT_TRACKING_ID:2
+          "EV_ABS:ABS_MT_POSITION_X:$bx" "EV_ABS:ABS_MT_POSITION_Y:$by" EV_ABS:ABS_MT_PRESSURE:50
+          EV_KEY:BTN_TOUCH:1 EV_SYN:0:0
+        )
+      else
+        events=(
+          EV_ABS:ABS_MT_SLOT:0 "EV_ABS:ABS_MT_POSITION_X:$ax" "EV_ABS:ABS_MT_POSITION_Y:$ay"
+          EV_ABS:ABS_MT_SLOT:1 "EV_ABS:ABS_MT_POSITION_X:$bx" "EV_ABS:ABS_MT_POSITION_Y:$by"
+          EV_SYN:0:0
+        )
+      fi
+      date +%s%N >>"$out/$dir/stamps.txt"
+      "$adb" emu event send "${events[@]}" >>"$out/$dir/events.txt" 2>&1
+      sleep 0.03
+    done
+    date +%s%N >>"$out/$dir/stamps.txt"
+    capture "$dir/down/dumpsys-input.txt" "$adb" shell dumpsys input
+    capture "$dir/event-up.txt" "$adb" emu event send \
+      EV_ABS:ABS_MT_SLOT:0 EV_ABS:ABS_MT_TRACKING_ID:-1 \
+      EV_ABS:ABS_MT_SLOT:1 EV_ABS:ABS_MT_TRACKING_ID:-1 \
+      EV_KEY:BTN_TOUCH:0 EV_SYN:0:0
+    sleep 1
+    capture "$dir/after/dumpsys-window-displays.txt" "$adb" shell dumpsys window displays
+    capture "$dir/after.png" "$adb" exec-out screencap -p
+    "$adb" shell input keyevent KEYCODE_BACK
+    sleep 2
+  done
 fi
 home
 
