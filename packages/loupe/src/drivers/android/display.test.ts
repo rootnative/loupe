@@ -37,7 +37,11 @@ describe.each(API_LEVELS)('rotateAndroid, on API %i', (level) => {
       ),
       [AUTO_ROTATE_OFF]: {},
       [`${ADB} settings put system user_rotation 1`]: {},
-      [DUMP]: [dump(level, 1, 'home'), dump(level, 1, 'settings')],
+      [DUMP]: [
+        dump(level, 0, 'settings'),
+        dump(level, 0, 'settings'),
+        dump(level, 1, 'settings'),
+      ],
     })
 
     const display = await rotateAndroid(await target(), 'landscape-left', {
@@ -60,6 +64,26 @@ describe.each(API_LEVELS)('rotateAndroid, on API %i', (level) => {
           ]
         : [],
     )
+    expect(calls.filter((call) => call.args.includes('dumpsys'))).toHaveLength(
+      3,
+    )
+  })
+
+  // The launcher asks for NOSENSOR and shows portrait. On Android 14 and
+  // later, a rotation written now is put back when the launcher leaves.
+  it('writes nothing while the launcher is in front, even for portrait', async () => {
+    const { calls, target } = emulator(level, {
+      [DUMP]: dump(level, 1, 'home'),
+    })
+
+    await expect(
+      rotateAndroid(await target(), 'portrait', { timeout: 0 }),
+    ).rejects.toMatchObject({ code: 'orientation_locked' })
+    expect(
+      calls.some(
+        (call) => call.args.includes('wm') || call.args.includes('put'),
+      ),
+    ).toBe(false)
   })
 })
 
@@ -79,8 +103,7 @@ describe('rotateAndroid', () => {
   })
 
   it('fails with orientation_locked when the app in front sets its own orientation', async () => {
-    const { target } = emulator(36, {
-      [`${ADB} wm user-rotation lock 1`]: {},
+    const { calls, target } = emulator(36, {
       [DUMP]: dump(36, 1, 'home'),
     })
 
@@ -89,8 +112,24 @@ describe('rotateAndroid', () => {
     ).rejects.toMatchObject({
       code: 'orientation_locked',
       message:
-        'The screen stays portrait, because the app in front sets its own orientation (SCREEN_ORIENTATION_NOSENSOR). Open an app that follows the rotation, then rotate again.',
+        "The app in front sets its own orientation (SCREEN_ORIENTATION_NOSENSOR), so loupe doesn't rotate now. The screen can't turn, and Android can undo the setting later. Open an app that follows the rotation, then rotate again.",
     })
+    expect(calls.some((call) => call.args.includes('wm'))).toBe(false)
+  })
+
+  it('fails with orientation_locked when such an app comes to the front during the wait', async () => {
+    const { calls, target } = emulator(36, {
+      [`${ADB} wm user-rotation lock 1`]: {},
+      [DUMP]: [dump(36, 0, 'settings'), dump(36, 1, 'home')],
+    })
+
+    await expect(
+      rotateAndroid(await target(), 'landscape-left', {
+        timeout: 1000,
+        interval: 0,
+      }),
+    ).rejects.toMatchObject({ code: 'orientation_locked' })
+    expect(calls.some((call) => call.args.includes('wm'))).toBe(true)
   })
 
   it('fails with timeout when the screen does not turn in time', async () => {
@@ -111,6 +150,7 @@ describe('rotateAndroid', () => {
   it('keeps a wm failure that is not an unknown command', async () => {
     const { calls, target } = emulator(36, {
       [`${ADB} wm user-rotation lock 1`]: { code: 1, stderr: 'error: closed' },
+      [DUMP]: dump(36, 0, 'settings'),
     })
 
     await expect(

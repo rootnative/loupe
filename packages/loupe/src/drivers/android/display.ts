@@ -100,30 +100,30 @@ async function setUserRotation(
   }
 }
 
-function notTurned(
-  display: WindowDisplay,
-  wanted: Orientation,
-  timeout: number,
-): LoupeError {
-  const now = orientationOf(display.rotation)
-  const app = display.appOrientation
-  if (app && !FOLLOWS_USER_ROTATION.has(app)) {
-    return new LoupeError(
-      'orientation_locked',
-      `The screen stays ${now}, because the app in front sets its own orientation (${app}). Open an app that follows the rotation, then rotate again.`,
-    )
-  }
+function setsOwnOrientation({ appOrientation }: WindowDisplay): boolean {
+  return (
+    appOrientation !== undefined && !FOLLOWS_USER_ROTATION.has(appOrientation)
+  )
+}
+
+function orientationLocked(display: WindowDisplay): LoupeError {
   return new LoupeError(
-    'timeout',
-    `The screen didn't turn to ${wanted} in ${timeout} ms. It's ${now}.`,
+    'orientation_locked',
+    `The app in front sets its own orientation (${display.appOrientation}), so loupe doesn't rotate now. The screen can't turn, and Android can undo the setting later. Open an app that follows the rotation, then rotate again.`,
   )
 }
 
 /**
  * Locks the user rotation, then reads the screen back until it has turned.
  * An app can ask for its own orientation, and that wins over the user
- * rotation, so the setting alone proves nothing. The lock stays after loupe
- * exits, as when a person turns auto-rotate off.
+ * rotation, so the setting alone proves nothing.
+ *
+ * loupe writes nothing while such an app is in front. Android 14 and later
+ * keep the user rotation while a `NOSENSOR` app (a launcher) is in front,
+ * and put it back when that app leaves. A write in that time is lost, and
+ * the read-back can match by chance: the launcher is in portrait.
+ *
+ * The lock stays after loupe exits, as when a person turns auto-rotate off.
  */
 export async function rotateAndroid(
   target: AndroidTarget,
@@ -131,13 +131,22 @@ export async function rotateAndroid(
   { timeout, interval = 250 }: RotateOptions,
 ): Promise<DisplayState> {
   const wanted = rotationOf(orientation)
+  const before = await readWindowDisplay(target)
+  if (setsOwnOrientation(before)) throw orientationLocked(before)
   await setUserRotation(target, wanted)
 
   const deadline = Date.now() + timeout
   for (;;) {
     const display = await readWindowDisplay(target)
+    // Another app can come to the front during the wait.
+    if (setsOwnOrientation(display)) throw orientationLocked(display)
     if (display.rotation === wanted) return toDisplayState(display)
-    if (Date.now() >= deadline) throw notTurned(display, orientation, timeout)
+    if (Date.now() >= deadline) {
+      throw new LoupeError(
+        'timeout',
+        `The screen didn't turn to ${orientation} in ${timeout} ms. It's ${orientationOf(display.rotation)}.`,
+      )
+    }
     await sleep(interval)
   }
 }
