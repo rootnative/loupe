@@ -1,0 +1,1 @@
+KO: invalid event code in 'EV_ABS:ABS_LOUPE:1', try 'event list codes <type>' for valid values

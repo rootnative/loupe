@@ -14,7 +14,7 @@ import { createSdkTool, EMULATOR, type SdkTool } from './sdk-tool'
 /** Android 11. The insets format of `dumpsys` that loupe reads starts here. */
 export const MIN_API_LEVEL = 30
 
-const EMULATOR_SERIAL = /^emulator-\d+$/
+export const EMULATOR_SERIAL = /^emulator-\d+$/
 
 type Props = Record<string, string>
 
