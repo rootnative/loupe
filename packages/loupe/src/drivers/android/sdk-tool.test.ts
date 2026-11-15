@@ -209,4 +209,16 @@ describe('createSdkTool', () => {
       message: 'adb exited with code 1.',
     })
   })
+
+  it('gives the whole result of a non-zero exit through result()', async () => {
+    const { context } = fakeContext(() => ({
+      code: 1,
+      stdout: 'Error: Activity not started\n',
+    }))
+
+    const result = await createSdkTool(context, ADB).result(['shell', 'am'])
+
+    expect(result.code).toBe(1)
+    expect(result.stdout.toString('utf8')).toBe('Error: Activity not started\n')
+  })
 })

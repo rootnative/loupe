@@ -1,5 +1,6 @@
 import { z } from 'zod'
 import { ORIENTATIONS } from './display'
+import { describeElement, type Element, elementSchema } from './element'
 import { type Point, round2 } from './units'
 
 export const pointSchema = z.object({ x: z.number(), y: z.number() })
@@ -34,6 +35,25 @@ export const touchSchema = z.object({
 
 export type Touch = z.infer<typeof touchSchema>
 
+/** The output of a touch at a point or on an element. */
+export const aimedTouchSchema = touchSchema.extend({
+  element: elementSchema
+    .optional()
+    .describe('The element that loupe touched, when the input named one.'),
+})
+
 export function describePoint({ x, y }: Point): string {
   return `(${round2(x)}, ${round2(y)})`
+}
+
+/** `"Network & internet" at (211.81, 244)`, or the points alone. */
+export function describeTouched({
+  points,
+  element,
+}: {
+  points: readonly Point[]
+  element?: Element
+}): string {
+  const where = points.map(describePoint).join(' ')
+  return element ? `${describeElement(element)} at ${where}` : where
 }

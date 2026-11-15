@@ -32,6 +32,11 @@ export interface SdkTool {
   run(args: readonly string[], options?: ExecOptions): Promise<Buffer>
   /** Runs the tool and returns its stdout as text. */
   text(args: readonly string[], options?: ExecOptions): Promise<string>
+  /**
+   * Runs the tool and returns what it gave, with a non-zero exit code too:
+   * for a tool whose exit code differs from one Android version to the next.
+   */
+  result(args: readonly string[], options?: ExecOptions): Promise<ExecResult>
 }
 
 /**
@@ -126,5 +131,6 @@ export function createSdkTool(
   return {
     run,
     text: async (args, options) => (await run(args, options)).toString('utf8'),
+    result: execTool,
   }
 }

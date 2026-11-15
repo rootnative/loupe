@@ -12,6 +12,9 @@ export const ERROR_CODES = [
   'orientation_locked',
   'app_not_in_front',
   'not_idle',
+  'element_not_found',
+  'element_ambiguous',
+  'no_handler',
   'internal',
 ] as const
 

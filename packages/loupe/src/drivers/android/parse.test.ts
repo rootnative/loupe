@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 import { API_LEVELS, recordedText } from '../../testing/fixtures'
 import {
   parseAdbDevices,
+  parseAmStart,
   parseAvdList,
   parseEmuAvdName,
   parseGetprop,
@@ -229,6 +230,33 @@ describe('parseUiautomatorDump', () => {
       parseUiautomatorDump('<hierarchy rotation="0"><node index="0">'),
     ).toThrow("<node> isn't closed.")
   })
+})
+
+describe('parseAmStart', () => {
+  it('reads a started activity', () => {
+    expect(
+      parseAmStart(recordedText('api-30/extra/am-start-https.txt')),
+    ).toEqual({
+      status: 'ok',
+      activity:
+        'com.android.chrome/org.chromium.chrome.browser.firstrun.FirstRunActivity',
+      launchState: 'COLD',
+      totalTime: 669,
+      error: undefined,
+      unresolved: false,
+    })
+  })
+
+  it.each([30, 36])(
+    'reads an intent that no activity takes, on API %i',
+    (level) => {
+      expect(
+        parseAmStart(
+          recordedText(`api-${level}/extra/am-start-no-handler.txt`),
+        ),
+      ).toMatchObject({ status: undefined, unresolved: true })
+    },
+  )
 })
 
 describe('parseAdbDevices', () => {

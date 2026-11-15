@@ -160,6 +160,39 @@ export function parseUiautomatorDump(
   }
 }
 
+export interface AmStart {
+  /** `ok` when the activity started. */
+  status?: string
+  /** `package/activity` */
+  activity?: string
+  /** `COLD`, `WARM` or `HOT`. */
+  launchState?: string
+  /** Milliseconds. */
+  totalTime?: number
+  /** The text after "Error: ". */
+  error?: string
+  /** No activity takes the intent. */
+  unresolved: boolean
+}
+
+/**
+ * Reads `am start -W`. Its exit code for an intent that no activity takes
+ * is 0 up to API 34 and 1 from API 35, so only the text counts.
+ */
+export function parseAmStart(text: string): AmStart {
+  const field = (name: string): string | undefined =>
+    new RegExp(`^${name}: (.+?)\\s*$`, 'm').exec(text)?.[1]
+  const totalTime = Number.parseInt(field('TotalTime') ?? '', 10)
+  return {
+    status: field('Status'),
+    activity: field('Activity'),
+    launchState: field('LaunchState'),
+    totalTime: Number.isNaN(totalTime) ? undefined : totalTime,
+    error: field('Error'),
+    unresolved: text.includes('unable to resolve Intent'),
+  }
+}
+
 /** Reads `adb emu avd name`: the name, then "OK". */
 export function parseEmuAvdName(text: string): string | undefined {
   const [first = ''] = lines(text)

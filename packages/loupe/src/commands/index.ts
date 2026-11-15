@@ -3,10 +3,13 @@ import { devicesCommand } from './devices'
 import { doubleTapCommand } from './double-tap'
 import { dragCommand } from './drag'
 import { holdCommand } from './hold'
+import { keyCommand } from './key'
+import { openUrlCommand } from './open-url'
 import { rotateCommand } from './rotate'
 import { screenshotCommand } from './screenshot'
 import { swipeCommand } from './swipe'
 import { tapCommand } from './tap'
+import { typeCommand } from './type'
 import { uiCommand } from './ui'
 import { versionCommand } from './version'
 
@@ -16,10 +19,13 @@ export const registry = createRegistry([
   doubleTapCommand,
   dragCommand,
   holdCommand,
+  keyCommand,
+  openUrlCommand,
   rotateCommand,
   screenshotCommand,
   swipeCommand,
   tapCommand,
+  typeCommand,
   uiCommand,
   versionCommand,
 ])
