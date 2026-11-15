@@ -1,4 +1,5 @@
 import { z } from 'zod'
+import { round2 } from './units'
 
 /**
  * In the order of the rotation: each step turns the device a quarter turn
@@ -41,10 +42,6 @@ export const displaySchema = z.object({
 
 export type DisplayState = z.infer<typeof displaySchema>
 
-function round(value: number): number {
-  return Math.round(value * 100) / 100
-}
-
 /** One line for a person, with dp rounded to 2 places. */
 export function describeDisplay({
   orientation,
@@ -52,5 +49,5 @@ export function describeDisplay({
   pixels,
   scale,
 }: DisplayState): string {
-  return `${orientation}: ${round(size.width)} × ${round(size.height)} dp (${pixels.width} × ${pixels.height} px, scale ${scale})`
+  return `${orientation}: ${round2(size.width)} × ${round2(size.height)} dp (${pixels.width} × ${pixels.height} px, scale ${scale})`
 }

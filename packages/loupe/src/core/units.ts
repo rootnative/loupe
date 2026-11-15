@@ -37,6 +37,11 @@ export function fromPixels(pixels: number, scale: number): number {
   return pixels / scale
 }
 
+/** For text that a person reads. 0.01 pt or dp is finer than one pixel. */
+export function round2(value: number): number {
+  return Math.round(value * 100) / 100
+}
+
 export function pointToPixels(point: Point, scale: number): Point {
   return { x: toPixels(point.x, scale), y: toPixels(point.y, scale) }
 }

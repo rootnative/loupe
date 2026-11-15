@@ -11,6 +11,7 @@ export const ERROR_CODES = [
   'unsupported',
   'orientation_locked',
   'app_not_in_front',
+  'not_idle',
   'internal',
 ] as const
 

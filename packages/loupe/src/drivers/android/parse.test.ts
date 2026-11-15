@@ -5,8 +5,17 @@ import {
   parseAvdList,
   parseEmuAvdName,
   parseGetprop,
+  parseUiautomatorDump,
   parseWindowDisplays,
 } from './parse'
+import { type XmlElement } from './xml'
+
+function everyElement(elements: readonly XmlElement[]): XmlElement[] {
+  return elements.flatMap((element) => [
+    element,
+    ...everyElement(element.children),
+  ])
+}
 
 describe.each(API_LEVELS)('the parsers, on the output of API %i', (level) => {
   const api = `api-${level}`
@@ -175,6 +184,50 @@ describe('parseWindowDisplays', () => {
         '  Display: mDisplayId=0\n    init=1080x2400 420dpi cur=1080x2400\n',
       ),
     ).toBeUndefined()
+  })
+})
+
+describe('parseUiautomatorDump', () => {
+  it.each(API_LEVELS)(
+    'reads the tree, and skips the line after it, on API %i',
+    (level) => {
+      const dump = parseUiautomatorDump(
+        recordedText(`api-${level}/none/rotation-1/settings.ui-tty.txt`),
+      )
+
+      expect(dump?.rotation).toBe(1)
+      expect(dump?.nodes).toHaveLength(1)
+      expect(dump?.nodes[0]?.attributes).toMatchObject({
+        class: 'android.widget.FrameLayout',
+        package: 'com.android.settings',
+      })
+    },
+  )
+
+  it('decodes a new line in a text', () => {
+    const dump = parseUiautomatorDump(
+      recordedText('api-33/extra/https.ui-tty.txt'),
+    )
+    const texts = everyElement(dump?.nodes ?? []).map(
+      (element) => element.attributes.text,
+    )
+
+    expect(texts).toContainEqual(
+      expect.stringContaining('Terms of Service.\nTo help improve the app'),
+    )
+  })
+
+  it('gives undefined for output with no tree', () => {
+    expect(
+      parseUiautomatorDump('ERROR: could not get idle state.\n'),
+    ).toBeUndefined()
+    expect(parseUiautomatorDump('')).toBeUndefined()
+  })
+
+  it('throws an error for a tree that is cut short', () => {
+    expect(() =>
+      parseUiautomatorDump('<hierarchy rotation="0"><node index="0">'),
+    ).toThrow("<node> isn't closed.")
   })
 })
 

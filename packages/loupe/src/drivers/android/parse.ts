@@ -1,4 +1,5 @@
 import { type Size } from '../../core/units'
+import { parseXml, type XmlElement } from './xml'
 
 export interface AdbDeviceEntry {
   serial: string
@@ -129,6 +130,33 @@ export function parseWindowDisplays(
     rotation: Number(rotation[1]),
     appOrientation: /\bmCurrentAppOrientation=([A-Z_]+)/.exec(block)?.[1],
     focus: /^\s*mCurrentFocus=Window\{\S+ u\d+ (.+)\}\s*$/m.exec(block)?.[1],
+  }
+}
+
+export interface UiautomatorDump {
+  /** Quarter turns, as `mRotation` counts them. */
+  rotation?: number
+  /** The `node` elements at the top of the tree. */
+  nodes: XmlElement[]
+}
+
+/**
+ * Reads `uiautomator dump /dev/tty`: the XML, then the line "UI hierchary
+ * dumped to: /dev/tty". Undefined when the output has no tree, for example
+ * "ERROR: could not get idle state.". It throws an error when the XML is
+ * broken.
+ */
+export function parseUiautomatorDump(
+  text: string,
+): UiautomatorDump | undefined {
+  const start = text.indexOf('<hierarchy')
+  if (start === -1) return undefined
+
+  const hierarchy = parseXml(text.slice(start))
+  const rotation = Number.parseInt(hierarchy.attributes.rotation ?? '', 10)
+  return {
+    rotation: Number.isNaN(rotation) ? undefined : rotation,
+    nodes: hierarchy.children.filter((child) => child.name === 'node'),
   }
 }
 
