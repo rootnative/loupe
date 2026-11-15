@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { byCommand, type FakeRun, fakeContext } from '../../testing/fake-exec'
-import { API_LEVELS, recorded } from '../../testing/fixtures'
+import { API_LEVELS, recorded, recordedText } from '../../testing/fixtures'
 import { selectAndroidDevice } from './devices'
 import { readAndroidDisplay, rotateAndroid } from './display'
 
@@ -144,6 +144,58 @@ describe('rotateAndroid', () => {
       code: 'timeout',
       message:
         "The screen didn't turn to landscape-left in 0 ms. It's portrait.",
+    })
+  })
+
+  // Seen in CI on API 30: `mRotation` turns first, and `cur=` keeps the old
+  // size for a moment. No recording caught that moment, so this changes the
+  // size of a recorded landscape dump back to portrait.
+  const stale: FakeRun = {
+    stdout: recordedText(
+      'api-30/none/rotation-1/settings/dumpsys-window-displays.txt',
+    ).replace('cur=2400x1080', 'cur=1080x2400'),
+  }
+
+  it('waits until the size has turned with the rotation', async () => {
+    const { calls, target } = emulator(30, {
+      [`${ADB} wm user-rotation lock 1`]: recorded(
+        'api-30/none/rotation-1/user-rotation-lock.txt',
+      ),
+      [AUTO_ROTATE_OFF]: {},
+      [`${ADB} settings put system user_rotation 1`]: {},
+      [DUMP]: [dump(30, 0, 'settings'), stale, dump(30, 1, 'settings')],
+    })
+
+    expect(
+      await rotateAndroid(await target(), 'landscape-left', {
+        timeout: 1000,
+        interval: 0,
+      }),
+    ).toMatchObject({
+      orientation: 'landscape-left',
+      pixels: { width: 2400, height: 1080 },
+    })
+    expect(calls.filter((call) => call.args.includes('dumpsys'))).toHaveLength(
+      3,
+    )
+  })
+
+  it('fails with timeout when the size does not follow in time', async () => {
+    const { target } = emulator(30, {
+      [`${ADB} wm user-rotation lock 1`]: recorded(
+        'api-30/none/rotation-1/user-rotation-lock.txt',
+      ),
+      [AUTO_ROTATE_OFF]: {},
+      [`${ADB} settings put system user_rotation 1`]: {},
+      [DUMP]: [dump(30, 0, 'settings'), stale],
+    })
+
+    await expect(
+      rotateAndroid(await target(), 'landscape-left', { timeout: 0 }),
+    ).rejects.toMatchObject({
+      code: 'timeout',
+      message:
+        "The screen turned to landscape-left, but its size didn't follow in 0 ms: it's 1080 × 2400 px.",
     })
   })
 

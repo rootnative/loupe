@@ -116,6 +116,18 @@ function setsOwnOrientation({ appOrientation }: WindowDisplay): boolean {
   )
 }
 
+/**
+ * True when the size has turned with the rotation. Android 11 sets
+ * `mRotation` first, and gives the old size in `cur=` for a moment after.
+ */
+function sizeFollows({ natural, current, rotation }: WindowDisplay): boolean {
+  const naturalIsWide = natural.width > natural.height
+  const isWide = current.width > current.height
+  return rotation % 2 === 0
+    ? isWide === naturalIsWide
+    : isWide !== naturalIsWide
+}
+
 function orientationLocked(display: WindowDisplay): LoupeError {
   return new LoupeError(
     'orientation_locked',
@@ -150,11 +162,14 @@ export async function rotateAndroid(
     const display = await readWindowDisplay(target)
     // Another app can come to the front during the wait.
     if (setsOwnOrientation(display)) throw orientationLocked(display)
-    if (display.rotation === wanted) return toDisplayState(display)
+    const turned = display.rotation === wanted
+    if (turned && sizeFollows(display)) return toDisplayState(display)
     if (Date.now() >= deadline) {
       throw new LoupeError(
         'timeout',
-        `The screen didn't turn to ${orientation} in ${timeout} ms. It's ${orientationOf(display.rotation)}.`,
+        turned
+          ? `The screen turned to ${orientation}, but its size didn't follow in ${timeout} ms: it's ${display.current.width} × ${display.current.height} px.`
+          : `The screen didn't turn to ${orientation} in ${timeout} ms. It's ${orientationOf(display.rotation)}.`,
       )
     }
     await sleep(interval)

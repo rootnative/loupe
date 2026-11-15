@@ -99,7 +99,36 @@ function findNode(nodes, test) {
   return undefined
 }
 
+/**
+ * Waits until 3 `input` calls in a row are fast, for up to 5 minutes. Right
+ * after boot the emulator is busy for a while, and the gestures through
+ * `input` get slow: in CI a drag of 300 ms once took 6 s. On API 30 each
+ * call starts a Java process, so fast there is under 1 s.
+ */
+async function settle() {
+  const limit = apiLevel === 30 ? 1000 : 100
+  const start = Date.now()
+  let fast = 0
+  while (fast < 3 && Date.now() - start < 300_000) {
+    const before = performance.now()
+    adb('shell', 'input', 'keyevent', '0')
+    if (performance.now() - before < limit) {
+      fast += 1
+    } else {
+      fast = 0
+      await sleep(2000)
+    }
+  }
+  const seconds = Math.round((Date.now() - start) / 1000)
+  console.log(
+    fast === 3
+      ? `The emulator settled in ${seconds} s.`
+      : `The emulator was still busy after ${seconds} s. The checks run anyway.`,
+  )
+}
+
 adb('wait-for-device')
+await settle()
 adb('shell', 'am', 'start', '-W', '-a', 'android.settings.SETTINGS')
 await sleep(2000)
 
