@@ -35,25 +35,23 @@ function notInFront(
         : ' No window has the focus: the screen can be off or locked.'
   return new LoupeError(
     'app_not_in_front',
-    `${app} isn't in front, so loupe reads nothing from ${target.serial}.${where} Open ${app}, then try again.`,
+    `${app} isn't in front, so loupe does nothing on ${target.serial}.${where} Open ${app}, then try again.`,
   )
 }
 
 /**
- * Runs `take` only while `app` is in front, then checks the focus again, so
- * a capture can't hold the screen of another app. A real device needs
+ * Reads the display, and checks that `app` is in front. A real device needs
  * `app`, because it can show the user's other apps. On an emulator with no
- * `app`, `take` runs with no check.
+ * `app`, there's no check.
  */
-export async function whileInFront<T>(
+export async function readInFront(
   target: AndroidTarget,
   app: string | undefined,
-  take: () => Promise<T>,
-): Promise<InFront<T>> {
+): Promise<WindowDisplay> {
   if (!app && target.kind === 'device') {
     throw new LoupeError(
       'invalid_input',
-      `${target.serial} is a real device, so loupe needs the "app" option: the package of the app under test. Then loupe reads the screen only while that app is in front.`,
+      `${target.serial} is a real device, so loupe needs the "app" option: the package of the app under test. Then loupe works only while that app is in front.`,
     )
   }
 
@@ -61,7 +59,19 @@ export async function whileInFront<T>(
   if (app && !isAppWindow(display.focus, app)) {
     throw notInFront(target, app, display)
   }
+  return display
+}
 
+/**
+ * Runs `take` only while `app` is in front (see `readInFront`), then checks
+ * the focus again, so a capture can't hold the screen of another app.
+ */
+export async function whileInFront<T>(
+  target: AndroidTarget,
+  app: string | undefined,
+  take: () => Promise<T>,
+): Promise<InFront<T>> {
+  const display = await readInFront(target, app)
   const value = await take()
 
   if (app && !isAppWindow((await readWindowDisplay(target)).focus, app)) {

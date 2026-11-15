@@ -34,13 +34,13 @@ export const deviceSchema = z.object({
 export type Device = z.infer<typeof deviceSchema>
 export type DeviceState = Device['state']
 
-/** The input field of each command that reads the screen. */
+/** The input field of each command that reads or touches the screen. */
 export const appField = z
   .string()
   .min(1)
   .optional()
   .describe(
-    'The package of the app under test, for example host.exp.exponent for Expo Go. loupe then reads the screen only while that app is in front. A real device needs it.',
+    'The package of the app under test, for example host.exp.exponent for Expo Go. loupe then works only while that app is in front. A real device needs it.',
   )
 
 /** The input field of each command that works on one device. */
