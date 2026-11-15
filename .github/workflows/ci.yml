@@ -97,8 +97,9 @@ jobs:
   android:
     name: Android smoke (API ${{ matrix.api-level }})
     # The built CLI on a clean emulator. API 30 is the lowest level that loupe
-    # takes, and there its gestures go through the emulator console. 36 is the
-    # newest level.
+    # takes, and 36 is the newest. On an emulator, double-tap, drag and pinch
+    # go through the emulator console, so no run here reaches their `input`
+    # script: only the fixture tests cover it.
     runs-on: ubuntu-latest
     timeout-minutes: 30
     strategy:

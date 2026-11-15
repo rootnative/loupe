@@ -8,14 +8,21 @@ import { recorded } from '../testing/fixtures'
 import { pngHeader } from '../testing/png'
 import { registry } from './index'
 
-const ADB = 'adb -s emulator-5554'
+const SERIAL = '127.0.0.1:5555'
+const ADB = `adb -s ${SERIAL}`
 const SHOT = '/data/local/tmp/loupe-drag.png'
 const PNG = pngHeader(2400, 1080)
 
-/** Settings in front, landscape-left. A script answers with its stamps. */
-function emulator36() {
+/**
+ * An API 36 emulator over TCP, with Settings in front, landscape-left. It has
+ * no console, so each gesture is one `input` script, and the script answers
+ * with fixed stamps.
+ */
+function tcpEmulator36() {
   const base = byCommand({
-    'adb devices -l': recorded('api-36/host/adb-devices-l.txt'),
+    'adb devices -l': {
+      stdout: `List of devices attached\n${SERIAL}         device product:sdk_gphone64_x86_64 model:sdk_gphone64_x86_64 device:emu64xa transport_id:1\n\n`,
+    },
     [`${ADB} shell getprop`]: recorded('api-36/device/getprop.txt'),
     [`${ADB} shell dumpsys window displays`]: recorded(
       'api-36/none/rotation-1/settings/dumpsys-window-displays.txt',
@@ -42,7 +49,7 @@ function emulator36() {
 }
 
 async function runCli(args: string[]) {
-  const { context, scripts } = emulator36()
+  const { context, scripts } = tcpEmulator36()
   const out: string[] = []
   const io = {
     out: (text: string) => out.push(text),

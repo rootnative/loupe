@@ -6,6 +6,7 @@ import { createAdb } from './adb'
 import {
   consoleGesture,
   downEvents,
+  hasConsole,
   moveEvents,
   needsConsole,
   toRaw,
@@ -281,5 +282,11 @@ describe('needsConsole', () => {
       code: 'unsupported',
       message: expect.stringContaining(message),
     })
+  })
+
+  it('matches hasConsole', () => {
+    expect(hasConsole(target(SERIAL, 'emulator'))).toBe(true)
+    expect(hasConsole(target('PHONE123', 'device'))).toBe(false)
+    expect(hasConsole(target('127.0.0.1:5555', 'emulator'))).toBe(false)
   })
 })

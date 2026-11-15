@@ -11,23 +11,52 @@ import { downEvents, moveEvents, toRaw, upEvents } from './console'
 import { type AndroidTarget, selectAndroidDevice } from './devices'
 import { doubleTapAndroid, dragAndroid } from './gesture'
 
-const ADB = 'adb -s emulator-5554'
+const EMULATOR = 'emulator-5554'
+/** An emulator that adb reaches over TCP, so with no console. */
+const TCP = '127.0.0.1:5555'
+const PHONE = 'PHONE123'
+const ADB = `adb -s ${EMULATOR}`
+const TCP_ADB = `adb -s ${TCP}`
+const SETTINGS = 'com.android.settings'
 const SHOT = '/data/local/tmp/loupe-drag.png'
 const DRAG = { duration: 300, holdStart: 0, holdEnd: 0 }
 
+function devicesOf(serial: string, level: number): FakeRun {
+  if (serial === EMULATOR)
+    return recorded(`api-${level}/host/adb-devices-l.txt`)
+  return {
+    stdout: `List of devices attached\n${serial}        device product:phone model:Phone_Model device:phone transport_id:4\n\n`,
+  }
+}
+
+/** A real phone has no qemu properties. */
+function propsOf(serial: string, level: number): FakeRun {
+  return serial === PHONE
+    ? {
+        stdout: `[ro.build.version.sdk]: [${level}]\n[sys.boot_completed]: [1]\n`,
+      }
+    : recorded(`api-${level}/device/getprop.txt`)
+}
+
 /** Settings in front, landscape-left, 2400 × 1080 px. */
-function emulator(
+function setup(
   answer: (script: string) => FakeRun,
   {
     level = 36,
+    serial = EMULATOR,
     runs = {},
-  }: { level?: number; runs?: Record<string, FakeRun | FakeRun[]> } = {},
+  }: {
+    level?: number
+    serial?: string
+    runs?: Record<string, FakeRun | FakeRun[]>
+  } = {},
 ) {
   const api = `api-${level}`
+  const adb = `adb -s ${serial}`
   const base = byCommand({
-    'adb devices -l': recorded(`${api}/host/adb-devices-l.txt`),
-    [`${ADB} shell getprop`]: recorded(`${api}/device/getprop.txt`),
-    [`${ADB} shell dumpsys window displays`]: recorded(
+    'adb devices -l': devicesOf(serial, level),
+    [`${adb} shell getprop`]: propsOf(serial, level),
+    [`${adb} shell dumpsys window displays`]: recorded(
       `${api}/none/rotation-1/settings/dumpsys-window-displays.txt`,
     ),
     ...runs,
@@ -57,30 +86,14 @@ function emulator(
   }
 }
 
-/** A real phone with Android 11. */
-function phone30() {
-  const { context, calls } = fakeContext(
-    byCommand({
-      'adb devices -l': {
-        stdout:
-          'List of devices attached\nPHONE123               device product:phone model:Phone_Model device:phone transport_id:4\n\n',
-      },
-      'adb -s PHONE123 shell getprop': {
-        stdout: '[ro.build.version.sdk]: [30]\n[sys.boot_completed]: [1]\n',
-      },
-    }),
-  )
-  return { calls, target: () => selectAndroidDevice(context) }
-}
-
-/** The recorded API 30 Settings screen is landscape-left, 2400 × 1080 px. */
-const LANDSCAPE_30 = {
+/** The recorded Settings screens are landscape-left, 2400 × 1080 px. */
+const LANDSCAPE = {
   orientation: 'landscape-left' as const,
   pixels: { width: 2400, height: 1080 },
 }
 
 function finger(x: number, y: number) {
-  return [toRaw({ x, y }, LANDSCAPE_30)]
+  return [toRaw({ x, y }, LANDSCAPE)]
 }
 
 /** The output of a script: one stamp line for each name, at ms from 0. */
@@ -97,10 +110,10 @@ function ran(calls: readonly FakeCall[], word: string): boolean {
 }
 
 describe('doubleTapAndroid', () => {
-  it('taps twice in one script, and gives the gap between the taps', async () => {
-    const { scripts, target } = emulator(() =>
-      stamps({ first: 0, second: 117 }),
-    )
+  it('taps twice in one script on an emulator over TCP, and gives the gap between the taps', async () => {
+    const { scripts, target } = setup(() => stamps({ first: 0, second: 117 }), {
+      serial: TCP,
+    })
 
     expect(await doubleTapAndroid(await target(), { x: 100, y: 200 })).toEqual({
       orientation: 'landscape-left',
@@ -120,7 +133,9 @@ describe('doubleTapAndroid', () => {
   })
 
   it('fails with timeout when the taps were too far apart', async () => {
-    const { target } = emulator(() => stamps({ first: 0, second: 412 }))
+    const { target } = setup(() => stamps({ first: 0, second: 412 }), {
+      serial: TCP,
+    })
 
     await expect(
       doubleTapAndroid(await target(), { x: 100, y: 200 }),
@@ -132,7 +147,9 @@ describe('doubleTapAndroid', () => {
   })
 
   it('fails when the pause did not work', async () => {
-    const { target } = emulator(() => stamps({ first: 0, second: 15 }))
+    const { target } = setup(() => stamps({ first: 0, second: 15 }), {
+      serial: TCP,
+    })
 
     await expect(
       doubleTapAndroid(await target(), { x: 100, y: 200 }),
@@ -140,10 +157,13 @@ describe('doubleTapAndroid', () => {
   })
 
   it('fails when an input call failed, or the stamps are missing', async () => {
-    const failed = emulator(() =>
-      stamps({ first: 0, second: 117 }, 'loupe-failed'),
+    const failed = setup(
+      () => stamps({ first: 0, second: 117 }, 'loupe-failed'),
+      { serial: TCP },
     )
-    const noStamps = emulator(() => ({ stdout: 'loupe-stamp first \n' }))
+    const noStamps = setup(() => ({ stdout: 'loupe-stamp first \n' }), {
+      serial: TCP,
+    })
 
     await expect(
       doubleTapAndroid(await failed.target(), { x: 100, y: 200 }),
@@ -157,30 +177,51 @@ describe('doubleTapAndroid', () => {
     })
   })
 
-  it('taps twice through the console on an API 30 emulator', async () => {
-    const { scripts, sent, target } = emulator(() => stamps({}), {
-      level: 30,
-    })
+  it.each([30, 36])(
+    'taps twice through the console on an API %i emulator',
+    async (level) => {
+      const { scripts, sent, target } = setup(() => stamps({}), { level })
 
-    const tap = await doubleTapAndroid(await target(), { x: 100, y: 200 })
+      const tap = await doubleTapAndroid(await target(), { x: 100, y: 200 })
 
-    expect(finger(263, 525)).toEqual([{ x: 16839, y: 3590 }])
-    expect(sent).toEqual([
-      downEvents(finger(263, 525)),
-      upEvents(1),
-      downEvents(finger(263, 525)),
-      upEvents(1),
-    ])
-    expect(tap).toMatchObject({
-      orientation: 'landscape-left',
-      pixels: [{ x: 263, y: 525 }],
-    })
-    expect(tap.gap).toBeGreaterThanOrEqual(99)
-    expect(scripts).toEqual([])
+      expect(finger(263, 525)).toEqual([{ x: 16839, y: 3590 }])
+      expect(sent).toEqual([
+        downEvents(finger(263, 525)),
+        upEvents(1),
+        downEvents(finger(263, 525)),
+        upEvents(1),
+      ])
+      expect(tap).toMatchObject({
+        orientation: 'landscape-left',
+        pixels: [{ x: 263, y: 525 }],
+      })
+      expect(tap.gap).toBeGreaterThanOrEqual(99)
+      expect(scripts).toEqual([])
+    },
+  )
+
+  it('taps twice in one script on a real device with API 36', async () => {
+    const { scripts, sent, target } = setup(
+      () => stamps({ first: 0, second: 117 }),
+      { serial: PHONE },
+    )
+
+    const tap = await doubleTapAndroid(
+      await target(),
+      { x: 100, y: 200 },
+      SETTINGS,
+    )
+
+    expect(tap.gap).toBe(117)
+    expect(scripts[0]?.[0]).toBe('input tap 263 525 || echo loupe-failed')
+    expect(sent).toEqual([])
   })
 
   it('is unsupported on a real device with API 30, and touches nothing', async () => {
-    const { calls, target } = phone30()
+    const { calls, target } = setup(() => stamps({}), {
+      level: 30,
+      serial: PHONE,
+    })
 
     await expect(
       doubleTapAndroid(await target(), { x: 100, y: 200 }, 'com.example.app'),
@@ -192,21 +233,34 @@ describe('doubleTapAndroid', () => {
     expect(ran(calls, 'dumpsys')).toBe(false)
   })
 
+  it('is unsupported on an API 30 emulator over TCP', async () => {
+    const { target } = setup(() => stamps({}), { level: 30, serial: TCP })
+
+    await expect(
+      doubleTapAndroid(await target(), { x: 100, y: 200 }),
+    ).rejects.toMatchObject({
+      code: 'unsupported',
+      message:
+        'A double-tap on API level 30 goes through the emulator console, and adb reaches it only for a serial like emulator-5554, not 127.0.0.1:5555.',
+    })
+  })
+
   it('touches nothing while another app is in front', async () => {
-    const { scripts, target } = emulator(() =>
-      stamps({ first: 0, second: 117 }),
-    )
+    const { scripts, sent, target } = setup(() => stamps({}))
 
     await expect(
       doubleTapAndroid(await target(), { x: 100, y: 200 }, 'com.example.app'),
     ).rejects.toMatchObject({ code: 'app_not_in_front' })
+    expect(sent).toEqual([])
     expect(scripts).toEqual([])
   })
 })
 
 describe('dragAndroid', () => {
-  it('sends DOWN, 10 MOVE steps with pauses, and UP, in one script', async () => {
-    const { scripts, target } = emulator(() => stamps({ move: 0, moved: 412 }))
+  it('sends DOWN, 10 MOVE steps with pauses, and UP, in one script on an emulator over TCP', async () => {
+    const { scripts, target } = setup(() => stamps({ move: 0, moved: 412 }), {
+      serial: TCP,
+    })
 
     const drag = await dragAndroid(
       await target(),
@@ -249,12 +303,13 @@ describe('dragAndroid', () => {
 
   it('holds at the start and at the end, and takes the shot after the end hold', async () => {
     const png = pngHeader(2400, 1080)
-    const { calls, scripts, target } = emulator(
+    const { calls, scripts, target } = setup(
       () => stamps({ move: 0, moved: 300 }, 'loupe-shot'),
       {
+        serial: TCP,
         runs: {
-          [`${ADB} exec-out cat ${SHOT}`]: { stdout: png },
-          [`${ADB} shell rm -f ${SHOT}`]: {},
+          [`${TCP_ADB} exec-out cat ${SHOT}`]: { stdout: png },
+          [`${TCP_ADB} shell rm -f ${SHOT}`]: {},
         },
       },
     )
@@ -279,9 +334,7 @@ describe('dragAndroid', () => {
       `screencap -p ${SHOT} && echo loupe-shot`,
       'input motionevent UP 263 788 || echo loupe-failed',
     ])
-    expect(calls.at(-1)?.args.join(' ')).toBe(
-      `-s emulator-5554 shell rm -f ${SHOT}`,
-    )
+    expect(calls.at(-1)?.args.join(' ')).toBe(`-s ${TCP} shell rm -f ${SHOT}`)
   })
 
   it.each([
@@ -289,12 +342,15 @@ describe('dragAndroid', () => {
     [0.5, 7],
     [0.96, 12],
   ])('takes the shot at %d of the move', async (shotAt, line) => {
-    const { scripts, target } = emulator(
+    const { scripts, target } = setup(
       () => stamps({ move: 0, moved: 300 }, 'loupe-shot'),
       {
+        serial: TCP,
         runs: {
-          [`${ADB} exec-out cat ${SHOT}`]: { stdout: pngHeader(2400, 1080) },
-          [`${ADB} shell rm -f ${SHOT}`]: {},
+          [`${TCP_ADB} exec-out cat ${SHOT}`]: {
+            stdout: pngHeader(2400, 1080),
+          },
+          [`${TCP_ADB} shell rm -f ${SHOT}`]: {},
         },
       },
     )
@@ -310,13 +366,16 @@ describe('dragAndroid', () => {
     expect(script.findIndex((line) => line.startsWith('screencap'))).toBe(line)
   })
 
-  it('checks the focus right before the shot when an app is given', async () => {
-    const { raw, target } = emulator(
+  it('checks the focus right before the shot on a real device', async () => {
+    const { raw, target } = setup(
       () => stamps({ move: 0, moved: 300 }, 'loupe-shot'),
       {
+        serial: PHONE,
         runs: {
-          [`${ADB} exec-out cat ${SHOT}`]: { stdout: pngHeader(2400, 1080) },
-          [`${ADB} shell rm -f ${SHOT}`]: {},
+          [`adb -s ${PHONE} exec-out cat ${SHOT}`]: {
+            stdout: pngHeader(2400, 1080),
+          },
+          [`adb -s ${PHONE} shell rm -f ${SHOT}`]: {},
         },
       },
     )
@@ -326,7 +385,7 @@ describe('dragAndroid', () => {
       { x: 100, y: 100 },
       { x: 100, y: 300 },
       { ...DRAG, shotAt: 1 },
-      'com.android.settings',
+      SETTINGS,
     )
 
     expect(raw[0]).toContain(
@@ -335,9 +394,9 @@ describe('dragAndroid', () => {
   })
 
   it('gives no shot, and deletes the file, when the focus moved away', async () => {
-    const { calls, target } = emulator(
+    const { calls, target } = setup(
       () => stamps({ move: 0, moved: 300 }, 'loupe-not-in-front'),
-      { runs: { [`${ADB} shell rm -f ${SHOT}`]: {} } },
+      { serial: PHONE, runs: { [`adb -s ${PHONE} shell rm -f ${SHOT}`]: {} } },
     )
 
     await expect(
@@ -346,7 +405,7 @@ describe('dragAndroid', () => {
         { x: 100, y: 100 },
         { x: 100, y: 300 },
         { ...DRAG, shotAt: 1 },
-        'com.android.settings',
+        SETTINGS,
       ),
     ).rejects.toMatchObject({ code: 'app_not_in_front' })
     expect(ran(calls, 'cat')).toBe(false)
@@ -354,18 +413,17 @@ describe('dragAndroid', () => {
   })
 
   it('fails when screencap failed, or gave no PNG', async () => {
-    const noShot = emulator(() => stamps({ move: 0, moved: 300 }), {
-      runs: { [`${ADB} shell rm -f ${SHOT}`]: {} },
+    const noShot = setup(() => stamps({ move: 0, moved: 300 }), {
+      serial: TCP,
+      runs: { [`${TCP_ADB} shell rm -f ${SHOT}`]: {} },
     })
-    const notPng = emulator(
-      () => stamps({ move: 0, moved: 300 }, 'loupe-shot'),
-      {
-        runs: {
-          [`${ADB} exec-out cat ${SHOT}`]: { stdout: 'cat: no such file' },
-          [`${ADB} shell rm -f ${SHOT}`]: {},
-        },
+    const notPng = setup(() => stamps({ move: 0, moved: 300 }, 'loupe-shot'), {
+      serial: TCP,
+      runs: {
+        [`${TCP_ADB} exec-out cat ${SHOT}`]: { stdout: 'cat: no such file' },
+        [`${TCP_ADB} shell rm -f ${SHOT}`]: {},
       },
-    )
+    })
     const drag = async (target: AndroidTarget) =>
       dragAndroid(
         target,
@@ -379,45 +437,45 @@ describe('dragAndroid', () => {
 
     await expect(drag(await noShot.target())).rejects.toMatchObject({
       code: 'tool_failed',
-      message: 'screencap failed on emulator-5554 during the drag.',
+      message: `screencap failed on ${TCP} during the drag.`,
     })
     await expect(drag(await notPng.target())).rejects.toMatchObject({
       code: 'tool_failed',
-      message: "The screenshot of the drag on emulator-5554 isn't a PNG.",
+      message: `The screenshot of the drag on ${TCP} isn't a PNG.`,
     })
   })
 
-  it('drags through the console on an API 30 emulator', async () => {
-    const { scripts, sent, target } = emulator(() => stamps({}), {
-      level: 30,
-    })
+  it.each([30, 36])(
+    'drags through the console on an API %i emulator',
+    async (level) => {
+      const { scripts, sent, target } = setup(() => stamps({}), { level })
 
-    const drag = await dragAndroid(
-      await target(),
-      { x: 100, y: 100 },
-      { x: 100, y: 300 },
-      { duration: 50, holdStart: 0, holdEnd: 0 },
-    )
+      const drag = await dragAndroid(
+        await target(),
+        { x: 100, y: 100 },
+        { x: 100, y: 300 },
+        { duration: 50, holdStart: 0, holdEnd: 0 },
+      )
 
-    expect(sent).toHaveLength(12)
-    expect(sent[0]).toEqual(downEvents(finger(263, 263)))
-    expect(sent[1]).toEqual(moveEvents(finger(263, 316)))
-    expect(sent[10]).toEqual(moveEvents(finger(263, 788)))
-    expect(sent[11]).toEqual(upEvents(1))
-    expect(drag).toMatchObject({
-      pixels: [
-        { x: 263, y: 263 },
-        { x: 263, y: 788 },
-      ],
-      png: undefined,
-    })
-    expect(drag.moveTime).toBeGreaterThanOrEqual(49)
-    expect(scripts).toEqual([])
-  })
+      expect(sent).toHaveLength(12)
+      expect(sent[0]).toEqual(downEvents(finger(263, 263)))
+      expect(sent[1]).toEqual(moveEvents(finger(263, 316)))
+      expect(sent[10]).toEqual(moveEvents(finger(263, 788)))
+      expect(sent[11]).toEqual(upEvents(1))
+      expect(drag).toMatchObject({
+        pixels: [
+          { x: 263, y: 263 },
+          { x: 263, y: 788 },
+        ],
+        png: undefined,
+      })
+      expect(drag.moveTime).toBeGreaterThanOrEqual(49)
+      expect(scripts).toEqual([])
+    },
+  )
 
-  it('takes the shot from the host while the finger is down, on API 30', async () => {
-    const { calls, target } = emulator(() => stamps({}), {
-      level: 30,
+  it('takes the shot from the host while the finger is down', async () => {
+    const { calls, target } = setup(() => stamps({}), {
       runs: {
         [`${ADB} exec-out screencap -p`]: { stdout: pngHeader(2400, 1080) },
       },
@@ -428,7 +486,7 @@ describe('dragAndroid', () => {
       { x: 100, y: 100 },
       { x: 100, y: 300 },
       { duration: 0, holdStart: 0, holdEnd: 0, shotAt: 0.5 },
-      'com.android.settings',
+      SETTINGS,
     )
 
     const touch = calls.findIndex((call) => call.args.includes('emu'))
@@ -448,7 +506,7 @@ describe('dragAndroid', () => {
   })
 
   it('ends the drag, then fails, when the focus moved away before the shot, on API 30', async () => {
-    const { calls, sent, target } = emulator(() => stamps({}), {
+    const { calls, sent, target } = setup(() => stamps({}), {
       level: 30,
       runs: {
         [`${ADB} shell dumpsys window displays`]: [
@@ -466,7 +524,7 @@ describe('dragAndroid', () => {
         { x: 100, y: 100 },
         { x: 100, y: 300 },
         { duration: 0, holdStart: 0, holdEnd: 0, shotAt: 0.5 },
-        'com.android.settings',
+        SETTINGS,
       ),
     ).rejects.toMatchObject({ code: 'app_not_in_front' })
     expect(sent).toHaveLength(12)
@@ -475,7 +533,7 @@ describe('dragAndroid', () => {
   })
 
   it('is unsupported on a real device with API 30', async () => {
-    const { target } = phone30()
+    const { target } = setup(() => stamps({}), { level: 30, serial: PHONE })
 
     await expect(
       dragAndroid(
@@ -489,11 +547,11 @@ describe('dragAndroid', () => {
   })
 
   it('refuses an end point off the screen, and touches nothing', async () => {
-    const { scripts, target } = emulator(() => stamps({ move: 0, moved: 300 }))
+    const { sent, target } = setup(() => stamps({}))
 
     await expect(
       dragAndroid(await target(), { x: 100, y: 100 }, { x: 100, y: 500 }, DRAG),
     ).rejects.toMatchObject({ code: 'invalid_input' })
-    expect(scripts).toEqual([])
+    expect(sent).toEqual([])
   })
 })

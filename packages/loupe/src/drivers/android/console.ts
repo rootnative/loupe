@@ -9,9 +9,14 @@ const RAW_UNITS = 32768
 const PRESSURE = 50
 
 /**
- * Fails unless the target is an emulator that adb can reach the console of:
- * `adb emu` takes the console port from an `emulator-<port>` serial.
+ * True for an emulator that adb can reach the console of: `adb emu` takes the
+ * console port from an `emulator-<port>` serial.
  */
+export function hasConsole(target: AndroidTarget): boolean {
+  return target.kind === 'emulator' && EMULATOR_SERIAL.test(target.serial)
+}
+
+/** Fails unless the target has a console that adb can reach. */
 export function needsConsole(target: AndroidTarget, gesture: string): void {
   if (target.kind !== 'emulator') {
     throw new LoupeError(
@@ -19,7 +24,7 @@ export function needsConsole(target: AndroidTarget, gesture: string): void {
       `${gesture} works only on an emulator: it goes through the emulator console, and ${target.serial} is a real device.`,
     )
   }
-  if (!EMULATOR_SERIAL.test(target.serial)) {
+  if (!hasConsole(target)) {
     throw new LoupeError(
       'unsupported',
       `${gesture} goes through the emulator console, and adb reaches it only for a serial like emulator-5554, not ${target.serial}.`,

@@ -27,7 +27,7 @@ export const doubleTapCommand = defineCommand({
     gap: z
       .number()
       .describe(
-        'Milliseconds between the two taps, measured on the device, or on the host through the emulator console (API 30).',
+        'Milliseconds between the two taps: on an emulator, measured on the host through the emulator console; on a real device, measured on the device.',
       ),
   }),
   run: async ({ app, device, ...input }, context) => {

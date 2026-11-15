@@ -247,8 +247,8 @@ check(
   'open-url: a web link opens',
 )
 
-// The gestures, on the empty middle of the home screen. On API 30 they go
-// through the emulator console; on 36, double-tap and drag use `input`.
+// The gestures, on the empty middle of the home screen. On an emulator they
+// go through its console.
 const home = loupe('key', 'home')
 await sleep(2000)
 check(home.ok, 'key home')

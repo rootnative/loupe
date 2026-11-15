@@ -4,15 +4,24 @@ import { DEFAULT_TIMEOUT_MS } from '../../core/exec'
 import { pngSize } from '../../core/png'
 import { type Touch } from '../../core/touch'
 import { type Point } from '../../core/units'
-import { pause as hostPause, needsConsole, toRaw, whileDown } from './console'
+import {
+  hasConsole,
+  pause as hostPause,
+  needsConsole,
+  toRaw,
+  whileDown,
+} from './console'
 import { type AndroidTarget } from './devices'
 import { readWindowDisplay } from './display'
 import { isAppWindow } from './foreground'
 import { onScreen, screenInFront } from './touch'
 
 /**
- * On Android 11, each `input` call starts a Java process: over 500 ms. There
- * a gesture goes through the emulator console.
+ * On a busy emulator `input` loses the timing, and the console keeps it: in
+ * CI, an `input` drag of 300 ms took 3.6 s. On Android 11, each `input` call
+ * also starts a Java process: over 500 ms. So `input` runs only from API 31,
+ * and only where there's no console: on a real device or an emulator over
+ * TCP.
  */
 const MIN_INPUT_API_LEVEL = 31
 const DOUBLE_TAP_PAUSE_MS = 100
@@ -56,9 +65,9 @@ export interface Drag extends Touch {
   png?: Buffer
 }
 
-/** True when the gesture must go through the emulator console. */
+/** True when the gesture goes through the emulator console. */
 function overConsole(target: AndroidTarget, gesture: string): boolean {
-  if (target.apiLevel >= MIN_INPUT_API_LEVEL) return false
+  if (target.apiLevel >= MIN_INPUT_API_LEVEL) return hasConsole(target)
   needsConsole(target, `${gesture} on API level ${target.apiLevel}`)
   return true
 }

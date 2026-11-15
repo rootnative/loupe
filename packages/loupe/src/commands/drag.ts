@@ -51,7 +51,7 @@ export const dragCommand = defineCommand({
     moveTime: z
       .number()
       .describe(
-        'Milliseconds that the move took, with a screenshot in the move: measured on the device, or on the host through the emulator console (API 30).',
+        'Milliseconds that the move took, with a screenshot in the move: on an emulator, measured on the host through the emulator console; on a real device, measured on the device.',
       ),
     shot: z.string().optional().describe('The PNG file, as an absolute path.'),
   }),
