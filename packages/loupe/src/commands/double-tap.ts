@@ -26,7 +26,9 @@ export const doubleTapCommand = defineCommand({
   output: aimedTouchSchema.extend({
     gap: z
       .number()
-      .describe('Milliseconds between the two taps, measured on the device.'),
+      .describe(
+        'Milliseconds between the two taps, measured on the device, or on the host through the emulator console (API 30).',
+      ),
   }),
   run: async ({ app, device, ...input }, context) => {
     const target = await selectAndroidDevice(context, device)

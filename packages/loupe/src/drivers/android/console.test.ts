@@ -10,6 +10,7 @@ import {
   needsConsole,
   toRaw,
   upEvents,
+  whileDown,
 } from './console'
 import { type AndroidTarget } from './devices'
 
@@ -222,6 +223,35 @@ describe('consoleGesture', () => {
     await expect(consoleGesture(target, steps, 0)).rejects.toMatchObject({
       code: 'tool_failed',
     })
+  })
+})
+
+describe('whileDown', () => {
+  const fingers = [{ x: 10, y: 20 }]
+
+  it('gives the value of the body, between the touch and the lift', async () => {
+    const { target, sent } = emulator()
+
+    const value = await whileDown(target, fingers, async (move) => {
+      await move([{ x: 11, y: 21 }])
+      return sent.length
+    })
+
+    expect(value).toBe(2)
+    expect(sent).toEqual([
+      downEvents(fingers),
+      moveEvents([{ x: 11, y: 21 }]),
+      upEvents(1),
+    ])
+  })
+
+  it('lifts the finger when the body fails', async () => {
+    const { target, sent } = emulator()
+
+    await expect(
+      whileDown(target, fingers, () => Promise.reject(new Error('body'))),
+    ).rejects.toThrow('body')
+    expect(sent).toEqual([downEvents(fingers), upEvents(1)])
   })
 })
 

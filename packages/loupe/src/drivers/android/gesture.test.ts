@@ -7,6 +7,7 @@ import {
 } from '../../testing/fake-exec'
 import { recorded } from '../../testing/fixtures'
 import { pngHeader } from '../../testing/png'
+import { downEvents, moveEvents, toRaw, upEvents } from './console'
 import { type AndroidTarget, selectAndroidDevice } from './devices'
 import { doubleTapAndroid, dragAndroid } from './gesture'
 
@@ -20,7 +21,7 @@ function emulator(
   {
     level = 36,
     runs = {},
-  }: { level?: number; runs?: Record<string, FakeRun> } = {},
+  }: { level?: number; runs?: Record<string, FakeRun | FakeRun[]> } = {},
 ) {
   const api = `api-${level}`
   const base = byCommand({
@@ -35,14 +36,51 @@ function emulator(
   // line but the `if` of a guarded shot: `raw` keeps that one whole.
   const raw: string[] = []
   const scripts: string[][] = []
+  const sent: string[][] = []
   const { context, calls } = fakeContext((call) => {
+    if (call.args.includes('emu')) {
+      sent.push(call.args.slice(call.args.indexOf('send') + 1))
+      return recorded('api-36/touch/console/event-down.txt')
+    }
     const script = call.args.at(-1) ?? ''
     if (!script.includes('loupe-stamp')) return base(call)
     raw.push(script)
     scripts.push(script.split('; '))
     return answer(script)
   })
-  return { calls, raw, scripts, target: () => selectAndroidDevice(context) }
+  return {
+    calls,
+    raw,
+    scripts,
+    sent,
+    target: () => selectAndroidDevice(context),
+  }
+}
+
+/** A real phone with Android 11. */
+function phone30() {
+  const { context, calls } = fakeContext(
+    byCommand({
+      'adb devices -l': {
+        stdout:
+          'List of devices attached\nPHONE123               device product:phone model:Phone_Model device:phone transport_id:4\n\n',
+      },
+      'adb -s PHONE123 shell getprop': {
+        stdout: '[ro.build.version.sdk]: [30]\n[sys.boot_completed]: [1]\n',
+      },
+    }),
+  )
+  return { calls, target: () => selectAndroidDevice(context) }
+}
+
+/** The recorded API 30 Settings screen is landscape-left, 2400 × 1080 px. */
+const LANDSCAPE_30 = {
+  orientation: 'landscape-left' as const,
+  pixels: { width: 2400, height: 1080 },
+}
+
+function finger(x: number, y: number) {
+  return [toRaw({ x, y }, LANDSCAPE_30)]
 }
 
 /** The output of a script: one stamp line for each name, at ms from 0. */
@@ -119,20 +157,38 @@ describe('doubleTapAndroid', () => {
     })
   })
 
-  it('is unsupported on API 30, and touches nothing', async () => {
-    const { calls, scripts, target } = emulator(
-      () => stamps({ first: 0, second: 117 }),
-      { level: 30 },
-    )
+  it('taps twice through the console on an API 30 emulator', async () => {
+    const { scripts, sent, target } = emulator(() => stamps({}), {
+      level: 30,
+    })
+
+    const tap = await doubleTapAndroid(await target(), { x: 100, y: 200 })
+
+    expect(finger(263, 525)).toEqual([{ x: 16839, y: 3590 }])
+    expect(sent).toEqual([
+      downEvents(finger(263, 525)),
+      upEvents(1),
+      downEvents(finger(263, 525)),
+      upEvents(1),
+    ])
+    expect(tap).toMatchObject({
+      orientation: 'landscape-left',
+      pixels: [{ x: 263, y: 525 }],
+    })
+    expect(tap.gap).toBeGreaterThanOrEqual(99)
+    expect(scripts).toEqual([])
+  })
+
+  it('is unsupported on a real device with API 30, and touches nothing', async () => {
+    const { calls, target } = phone30()
 
     await expect(
-      doubleTapAndroid(await target(), { x: 100, y: 200 }),
+      doubleTapAndroid(await target(), { x: 100, y: 200 }, 'com.example.app'),
     ).rejects.toMatchObject({
       code: 'unsupported',
       message:
-        'A double-tap needs Android 12 (API level 31) or later. emulator-5554 runs API level 30, where one input call takes over 500 ms.',
+        'A double-tap on API level 30 works only on an emulator: it goes through the emulator console, and PHONE123 is a real device.',
     })
-    expect(scripts).toEqual([])
     expect(ran(calls, 'dumpsys')).toBe(false)
   })
 
@@ -331,16 +387,105 @@ describe('dragAndroid', () => {
     })
   })
 
-  it('is unsupported on API 30', async () => {
-    const { scripts, target } = emulator(
-      () => stamps({ move: 0, moved: 300 }),
-      { level: 30 },
+  it('drags through the console on an API 30 emulator', async () => {
+    const { scripts, sent, target } = emulator(() => stamps({}), {
+      level: 30,
+    })
+
+    const drag = await dragAndroid(
+      await target(),
+      { x: 100, y: 100 },
+      { x: 100, y: 300 },
+      { duration: 50, holdStart: 0, holdEnd: 0 },
     )
 
-    await expect(
-      dragAndroid(await target(), { x: 100, y: 100 }, { x: 100, y: 300 }, DRAG),
-    ).rejects.toMatchObject({ code: 'unsupported' })
+    expect(sent).toHaveLength(12)
+    expect(sent[0]).toEqual(downEvents(finger(263, 263)))
+    expect(sent[1]).toEqual(moveEvents(finger(263, 316)))
+    expect(sent[10]).toEqual(moveEvents(finger(263, 788)))
+    expect(sent[11]).toEqual(upEvents(1))
+    expect(drag).toMatchObject({
+      pixels: [
+        { x: 263, y: 263 },
+        { x: 263, y: 788 },
+      ],
+      png: undefined,
+    })
+    expect(drag.moveTime).toBeGreaterThanOrEqual(49)
     expect(scripts).toEqual([])
+  })
+
+  it('takes the shot from the host while the finger is down, on API 30', async () => {
+    const { calls, target } = emulator(() => stamps({}), {
+      level: 30,
+      runs: {
+        [`${ADB} exec-out screencap -p`]: { stdout: pngHeader(2400, 1080) },
+      },
+    })
+
+    const drag = await dragAndroid(
+      await target(),
+      { x: 100, y: 100 },
+      { x: 100, y: 300 },
+      { duration: 0, holdStart: 0, holdEnd: 0, shotAt: 0.5 },
+      'com.android.settings',
+    )
+
+    const touch = calls.findIndex((call) => call.args.includes('emu'))
+    const order = calls.slice(touch).map((call) => {
+      if (call.args.includes('screencap')) return 'shot'
+      if (call.args.includes('dumpsys')) return 'focus'
+      return call.args.includes('EV_KEY:BTN_TOUCH:0') ? 'up' : 'touch'
+    })
+    expect(order).toEqual([
+      ...Array<string>(6).fill('touch'),
+      'focus',
+      'shot',
+      ...Array<string>(5).fill('touch'),
+      'up',
+    ])
+    expect(drag.png).toEqual(pngHeader(2400, 1080))
+  })
+
+  it('ends the drag, then fails, when the focus moved away before the shot, on API 30', async () => {
+    const { calls, sent, target } = emulator(() => stamps({}), {
+      level: 30,
+      runs: {
+        [`${ADB} shell dumpsys window displays`]: [
+          recorded(
+            'api-30/none/rotation-1/settings/dumpsys-window-displays.txt',
+          ),
+          recorded('api-30/none/rotation-1/home/dumpsys-window-displays.txt'),
+        ],
+      },
+    })
+
+    await expect(
+      dragAndroid(
+        await target(),
+        { x: 100, y: 100 },
+        { x: 100, y: 300 },
+        { duration: 0, holdStart: 0, holdEnd: 0, shotAt: 0.5 },
+        'com.android.settings',
+      ),
+    ).rejects.toMatchObject({ code: 'app_not_in_front' })
+    expect(sent).toHaveLength(12)
+    expect(sent.at(-1)).toEqual(upEvents(1))
+    expect(ran(calls, 'screencap')).toBe(false)
+  })
+
+  it('is unsupported on a real device with API 30', async () => {
+    const { target } = phone30()
+
+    await expect(
+      dragAndroid(
+        await target(),
+        { x: 100, y: 100 },
+        { x: 100, y: 300 },
+        DRAG,
+        'com.example.app',
+      ),
+    ).rejects.toMatchObject({ code: 'unsupported' })
   })
 
   it('refuses an end point off the screen, and touches nothing', async () => {

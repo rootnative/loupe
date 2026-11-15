@@ -22,7 +22,7 @@ export const dragCommand = defineCommand({
     toY: coordinateField('y'),
     duration: durationField(
       300,
-      'for the move, at the least: each input call adds 10 to 100 ms',
+      'for the move, at the least: each of the 10 steps adds one call, 5 to 100 ms',
     ),
     holdStart: durationField(0, 'to hold the touch before it moves'),
     holdEnd: durationField(0, 'to hold the touch at the end, before it lifts'),
@@ -51,7 +51,7 @@ export const dragCommand = defineCommand({
     moveTime: z
       .number()
       .describe(
-        'Milliseconds that the move took on the device, with a screenshot in the move.',
+        'Milliseconds that the move took, with a screenshot in the move: measured on the device, or on the host through the emulator console (API 30).',
       ),
     shot: z.string().optional().describe('The PNG file, as an absolute path.'),
   }),

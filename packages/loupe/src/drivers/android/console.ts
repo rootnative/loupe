@@ -111,32 +111,54 @@ async function send(
   }
 }
 
+/** Moves the fingers that are down to new points, in raw units. */
+export type MoveFingers = (fingers: readonly Point[]) => Promise<void>
+
 /**
- * Puts the fingers down at the first step, waits `pause` ms before each
- * next step, and lifts them after the last. Each step is one console call
- * with every finger. Returns the milliseconds from the touch to the last
- * step, measured on the host.
+ * Puts the fingers down, runs `body`, and lifts them after it, also when it
+ * fails. Each console call takes every finger. The raw units come from
+ * `toRaw`.
  */
-export async function consoleGesture(
+export async function whileDown<T>(
   target: AndroidTarget,
-  steps: readonly (readonly Point[])[],
-  pause: number,
-): Promise<number> {
-  const [first = [], ...next] = steps
-  let moveTime: number
+  fingers: readonly Point[],
+  body: (move: MoveFingers) => Promise<T>,
+): Promise<T> {
+  let value: T
   try {
-    await send(target, downEvents(first))
-    const start = performance.now()
-    for (const fingers of next) {
-      if (pause > 0) await sleep(pause)
-      await send(target, moveEvents(fingers))
-    }
-    moveTime = Math.round(performance.now() - start)
+    await send(target, downEvents(fingers))
+    value = await body((next) => send(target, moveEvents(next)))
   } catch (error) {
     // A finger that stays down blocks the app, so the lift goes out first.
-    await send(target, upEvents(first.length)).catch(() => {})
+    await send(target, upEvents(fingers.length)).catch(() => {})
     throw error
   }
-  await send(target, upEvents(first.length))
-  return moveTime
+  await send(target, upEvents(fingers.length))
+  return value
+}
+
+/** Waits on the host. */
+export async function pause(ms: number): Promise<void> {
+  if (ms > 0) await sleep(ms)
+}
+
+/**
+ * Puts the fingers down at the first step, waits `wait` ms before each next
+ * step, and lifts them after the last. Returns the milliseconds from the
+ * touch to the last step, measured on the host.
+ */
+export function consoleGesture(
+  target: AndroidTarget,
+  steps: readonly (readonly Point[])[],
+  wait: number,
+): Promise<number> {
+  const [first = [], ...next] = steps
+  return whileDown(target, first, async (move) => {
+    const start = performance.now()
+    for (const fingers of next) {
+      await pause(wait)
+      await move(fingers)
+    }
+    return Math.round(performance.now() - start)
+  })
 }

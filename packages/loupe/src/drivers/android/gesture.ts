@@ -1,13 +1,20 @@
+import { type DisplayState } from '../../core/display'
 import { LoupeError } from '../../core/errors'
 import { DEFAULT_TIMEOUT_MS } from '../../core/exec'
 import { pngSize } from '../../core/png'
 import { type Touch } from '../../core/touch'
 import { type Point } from '../../core/units'
+import { pause as hostPause, needsConsole, toRaw, whileDown } from './console'
 import { type AndroidTarget } from './devices'
+import { readWindowDisplay } from './display'
+import { isAppWindow } from './foreground'
 import { onScreen, screenInFront } from './touch'
 
-/** On Android 11, each `input` call starts a Java process: over 500 ms. */
-const MIN_API_LEVEL = 31
+/**
+ * On Android 11, each `input` call starts a Java process: over 500 ms. There
+ * a gesture goes through the emulator console.
+ */
+const MIN_INPUT_API_LEVEL = 31
 const DOUBLE_TAP_PAUSE_MS = 100
 /** Android's GestureDetector takes a double-tap only in this gap, in ms. */
 const DOUBLE_TAP_MIN_MS = 40
@@ -22,7 +29,10 @@ const SHOT_TAKEN = 'loupe-shot'
 const SHOT_REFUSED = 'loupe-not-in-front'
 
 export interface DoubleTap extends Touch {
-  /** Milliseconds between the two taps, measured on the device. */
+  /**
+   * Milliseconds between the two taps, measured on the device, or on the
+   * host through the emulator console.
+   */
   gap: number
 }
 
@@ -38,18 +48,19 @@ export interface DragOptions {
 export interface Drag extends Touch {
   holdStart: number
   holdEnd: number
-  /** Milliseconds that the move took, measured on the device. */
+  /**
+   * Milliseconds that the move took, measured on the device, or on the host
+   * through the emulator console.
+   */
   moveTime: number
   png?: Buffer
 }
 
-function needsFastInput(target: AndroidTarget, gesture: string): void {
-  if (target.apiLevel < MIN_API_LEVEL) {
-    throw new LoupeError(
-      'unsupported',
-      `${gesture} needs Android 12 (API level ${MIN_API_LEVEL}) or later. ${target.serial} runs API level ${target.apiLevel}, where one input call takes over 500 ms.`,
-    )
-  }
+/** True when the gesture must go through the emulator console. */
+function overConsole(target: AndroidTarget, gesture: string): boolean {
+  if (target.apiLevel >= MIN_INPUT_API_LEVEL) return false
+  needsConsole(target, `${gesture} on API level ${target.apiLevel}`)
+  return true
 }
 
 function stamp(name: string): string {
@@ -95,26 +106,50 @@ async function runScript(
   return output
 }
 
-export async function doubleTapAndroid(
+async function inputDoubleTap(
   target: AndroidTarget,
-  at: Point,
-  app?: string,
-): Promise<DoubleTap> {
-  needsFastInput(target, 'A double-tap')
-  const display = await screenInFront(target, app)
-  const pixels = onScreen(display, at)
-  const tap = `input tap ${pixels.x} ${pixels.y} || echo ${FAILED}`
-
+  { x, y }: Point,
+): Promise<number> {
+  const tap = `input tap ${x} ${y} || echo ${FAILED}`
   const output = await runScript(
     target,
     [tap, stamp('first'), ...pause(DOUBLE_TAP_PAUSE_MS), tap, stamp('second')],
     DEFAULT_TIMEOUT_MS,
   )
-
   // Each stamp comes right after an `input` call ends, and each call sends
   // its events at its end. So this is the gap from the first lift to the
   // second touch, to within a few ms.
-  const gap = between(output, 'first', 'second')
+  return between(output, 'first', 'second')
+}
+
+/**
+ * Two taps, each a touch and a lift. Each console call returns after the
+ * emulator took its events, so the gap is right to within one call.
+ */
+async function consoleDoubleTap(
+  target: AndroidTarget,
+  finger: Point,
+): Promise<number> {
+  await whileDown(target, [finger], async () => {})
+  const lifted = performance.now()
+  await hostPause(DOUBLE_TAP_PAUSE_MS)
+  return whileDown(target, [finger], async () =>
+    Math.round(performance.now() - lifted),
+  )
+}
+
+export async function doubleTapAndroid(
+  target: AndroidTarget,
+  at: Point,
+  app?: string,
+): Promise<DoubleTap> {
+  const viaConsole = overConsole(target, 'A double-tap')
+  const display = await screenInFront(target, app)
+  const pixels = onScreen(display, at)
+
+  const gap = viaConsole
+    ? await consoleDoubleTap(target, toRaw(pixels, display))
+    : await inputDoubleTap(target, pixels)
   if (gap > DOUBLE_TAP_MAX_MS) {
     throw new LoupeError(
       'timeout',
@@ -157,37 +192,55 @@ function stepsOf(start: Point, end: Point): Point[] {
   })
 }
 
+function focusMoved(app: string | undefined): LoupeError {
+  return new LoupeError(
+    'app_not_in_front',
+    `The focus moved away from ${app} during the drag, so loupe took no screenshot.`,
+  )
+}
+
+function checkPng(target: AndroidTarget, png: Buffer): Buffer {
+  if (!pngSize(png)) {
+    throw new LoupeError(
+      'tool_failed',
+      `The screenshot of the drag on ${target.serial} isn't a PNG.`,
+    )
+  }
+  return png
+}
+
 async function readShot(
   target: AndroidTarget,
   output: string,
   app: string | undefined,
 ): Promise<Buffer> {
   try {
-    if (output.includes(SHOT_REFUSED)) {
-      throw new LoupeError(
-        'app_not_in_front',
-        `The focus moved away from ${app} during the drag, so loupe took no screenshot.`,
-      )
-    }
+    if (output.includes(SHOT_REFUSED)) throw focusMoved(app)
     if (!output.includes(SHOT_TAKEN)) {
       throw new LoupeError(
         'tool_failed',
         `screencap failed on ${target.serial} during the drag.`,
       )
     }
-    const png = await target.adb.run(['exec-out', 'cat', SHOT_FILE])
-    if (!pngSize(png)) {
-      throw new LoupeError(
-        'tool_failed',
-        `The screenshot of the drag on ${target.serial} isn't a PNG.`,
-      )
-    }
-    return png
+    return checkPng(
+      target,
+      await target.adb.run(['exec-out', 'cat', SHOT_FILE]),
+    )
   } finally {
     // The file can only hold the app under test, so a failed delete doesn't
     // fail the drag.
     await target.adb.run(['shell', 'rm', '-f', SHOT_FILE]).catch(() => {})
   }
+}
+
+function shotStepOf(shotAt: number | undefined): number | 'end' | undefined {
+  if (shotAt === undefined) return undefined
+  return shotAt === 1 ? 'end' : Math.round(shotAt * DRAG_STEPS)
+}
+
+interface Moved {
+  moveTime: number
+  png?: Buffer
 }
 
 /**
@@ -196,27 +249,16 @@ async function readShot(
  * own time, so the move takes at least `duration`. A screenshot in the move
  * pauses the touch at that point while it runs.
  */
-export async function dragAndroid(
+async function inputDrag(
   target: AndroidTarget,
-  from: Point,
-  to: Point,
-  options: DragOptions,
-  app?: string,
-): Promise<Drag> {
-  needsFastInput(target, 'A drag')
-  const { duration, holdStart, holdEnd, shotAt } = options
-  const display = await screenInFront(target, app)
-  const start = onScreen(display, from)
-  const end = onScreen(display, to)
-
+  start: Point,
+  end: Point,
+  { duration, holdStart, holdEnd, shotAt }: DragOptions,
+  app: string | undefined,
+): Promise<Moved> {
   const motion = (action: string, { x, y }: Point): string =>
     `input motionevent ${action} ${x} ${y} || echo ${FAILED}`
-  const shotStep =
-    shotAt === undefined
-      ? undefined
-      : shotAt === 1
-        ? 'end'
-        : Math.round(shotAt * DRAG_STEPS)
+  const shotStep = shotStepOf(shotAt)
   const shot = shotLine(app)
   const shotAfter = (step: number | 'end'): string[] =>
     shotStep === step ? [shot] : []
@@ -243,14 +285,86 @@ export async function dragAndroid(
     holdStart + duration + holdEnd + DEFAULT_TIMEOUT_MS,
   )
   return {
-    orientation: display.orientation,
-    points: [from, to],
-    pixels: [start, end],
-    duration,
-    holdStart,
-    holdEnd,
     moveTime: between(output, 'move', 'moved'),
     png:
       shotStep === undefined ? undefined : await readShot(target, output, app),
+  }
+}
+
+/**
+ * The same drag through the emulator console, in the same order. The
+ * screenshot runs from the host while the finger stays down. When it fails,
+ * the drag still ends first, as in the script.
+ */
+async function consoleDrag(
+  target: AndroidTarget,
+  display: DisplayState,
+  start: Point,
+  end: Point,
+  { duration, holdStart, holdEnd, shotAt }: DragOptions,
+  app: string | undefined,
+): Promise<Moved> {
+  const shotStep = shotStepOf(shotAt)
+  const finger = (point: Point): Point[] => [toRaw(point, display)]
+  let png: Buffer | undefined
+  let shotError: unknown
+
+  const shotAfter = async (step: number | 'end'): Promise<void> => {
+    if (shotStep !== step) return
+    try {
+      if (app && !isAppWindow((await readWindowDisplay(target)).focus, app)) {
+        throw focusMoved(app)
+      }
+      png = checkPng(
+        target,
+        await target.adb.run(['exec-out', 'screencap', '-p']),
+      )
+    } catch (error) {
+      shotError = error
+    }
+  }
+
+  const moveTime = await whileDown(target, finger(start), async (move) => {
+    await hostPause(holdStart)
+    await shotAfter(0)
+    const moving = performance.now()
+    for (const [index, point] of stepsOf(start, end).entries()) {
+      await move(finger(point))
+      await hostPause(duration / DRAG_STEPS)
+      await shotAfter(index + 1)
+    }
+    const moved = Math.round(performance.now() - moving)
+    await hostPause(holdEnd)
+    await shotAfter('end')
+    return moved
+  })
+  if (shotError) throw shotError
+  return { moveTime, png }
+}
+
+export async function dragAndroid(
+  target: AndroidTarget,
+  from: Point,
+  to: Point,
+  options: DragOptions,
+  app?: string,
+): Promise<Drag> {
+  const viaConsole = overConsole(target, 'A drag')
+  const display = await screenInFront(target, app)
+  const start = onScreen(display, from)
+  const end = onScreen(display, to)
+
+  const { moveTime, png } = viaConsole
+    ? await consoleDrag(target, display, start, end, options, app)
+    : await inputDrag(target, start, end, options, app)
+  return {
+    orientation: display.orientation,
+    points: [from, to],
+    pixels: [start, end],
+    duration: options.duration,
+    holdStart: options.holdStart,
+    holdEnd: options.holdEnd,
+    moveTime,
+    png,
   }
 }
