@@ -37,7 +37,11 @@ export type DeviceState = Device['state']
 /** The input field of each command that reads or touches the screen. */
 export const appField = z
   .string()
-  .min(1)
+  // The name goes into a shell script on the device, so only these.
+  .regex(
+    /^[A-Za-z][A-Za-z0-9_.-]*$/,
+    'A package name has only letters, digits, "_", "." and "-".',
+  )
   .optional()
   .describe(
     'The package of the app under test, for example host.exp.exponent for Expo Go. loupe then works only while that app is in front. A real device needs it.',

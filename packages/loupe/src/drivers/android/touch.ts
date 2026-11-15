@@ -7,8 +7,16 @@ import { type AndroidTarget } from './devices'
 import { toDisplayState } from './display'
 import { readInFront } from './foreground'
 
+/** The display, after a check that the app is in front. */
+export async function screenInFront(
+  target: AndroidTarget,
+  app: string | undefined,
+): Promise<DisplayState> {
+  return toDisplayState(await readInFront(target, app))
+}
+
 /** The point in px of the current orientation. A point off the screen fails. */
-function onScreen(display: DisplayState, point: Point): Point {
+export function onScreen(display: DisplayState, point: Point): Point {
   const { width, height } = display.pixels
   const x = point.x * display.scale
   const y = point.y * display.scale
@@ -38,7 +46,7 @@ async function touch(
   send: (pixels: readonly Point[]) => (string | number)[],
   duration?: number,
 ): Promise<Touch> {
-  const display = toDisplayState(await readInFront(target, app))
+  const display = await screenInFront(target, app)
   const pixels = points.map((point) => onScreen(display, point))
 
   await target.adb.run(['shell', 'input', ...send(pixels).map(String)], {

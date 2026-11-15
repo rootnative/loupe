@@ -1,10 +1,9 @@
-import { mkdir, writeFile } from 'node:fs/promises'
-import path from 'node:path'
 import { z } from 'zod'
 import { defineCommand } from '../core/command'
 import { appField, deviceField } from '../core/device'
 import { describeDisplay, displaySchema } from '../core/display'
 import { LoupeError } from '../core/errors'
+import { writeOutputFile } from '../core/output-file'
 import { fromPixels, type Size } from '../core/units'
 import { selectAndroidDevice } from '../drivers/android/devices'
 import { captureAndroid } from '../drivers/android/screenshot'
@@ -45,9 +44,7 @@ export const screenshotCommand = defineCommand({
       )
     }
 
-    const file = path.resolve(out)
-    await mkdir(path.dirname(file), { recursive: true })
-    await writeFile(file, png)
+    const file = await writeOutputFile(out, png)
 
     return {
       file,
