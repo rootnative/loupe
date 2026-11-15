@@ -26,12 +26,22 @@ export interface RotateOptions {
   interval?: number
 }
 
+export function dumpWindowDisplays(target: AndroidTarget): Promise<string> {
+  return target.adb.text(['shell', 'dumpsys', 'window', 'displays'])
+}
+
 export async function readWindowDisplay(
   target: AndroidTarget,
 ): Promise<WindowDisplay> {
-  const display = parseWindowDisplays(
-    await target.adb.text(['shell', 'dumpsys', 'window', 'displays']),
-  )
+  return windowDisplayOf(target, await dumpWindowDisplays(target))
+}
+
+/** The display in a dump of `dumpsys window displays`. */
+export function windowDisplayOf(
+  target: AndroidTarget,
+  dump: string,
+): WindowDisplay {
+  const display = parseWindowDisplays(dump)
   if (!display) {
     throw new LoupeError(
       'tool_failed',

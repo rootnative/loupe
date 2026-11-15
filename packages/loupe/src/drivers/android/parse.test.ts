@@ -8,6 +8,7 @@ import {
   parseGetprop,
   parseUiautomatorDump,
   parseWindowDisplays,
+  parseWindowInsets,
 } from './parse'
 import { type XmlElement } from './xml'
 
@@ -229,6 +230,69 @@ describe('parseUiautomatorDump', () => {
     expect(() =>
       parseUiautomatorDump('<hierarchy rotation="0"><node index="0">'),
     ).toThrow("<node> isn't closed.")
+  })
+})
+
+describe('parseWindowInsets', () => {
+  it.each(API_LEVELS)(
+    'reads the sources and the cutout in landscape, on API %i',
+    (level) => {
+      const insets = parseWindowInsets(
+        recordedText(
+          `api-${level}/hole/rotation-1/settings/dumpsys-window-displays.txt`,
+        ),
+      )
+      const status = level <= 33 ? 'ITYPE_STATUS_BAR' : 'statusBars'
+      const cutout = level <= 33 ? 'ITYPE_LEFT_DISPLAY_CUTOUT' : 'displayCutout'
+
+      expect(insets?.cutout).toEqual({ top: 0, right: 0, bottom: 0, left: 136 })
+      expect(insets?.cutoutRects).toEqual([
+        { x: 0, y: 944, width: 136, height: 136 },
+      ])
+      expect(insets?.sources).toContainEqual({
+        type: status,
+        frame: { x: 0, y: 0, width: 2400, height: level === 30 ? 74 : 63 },
+        visible: true,
+        sideHint: level >= 35 ? 'TOP' : undefined,
+      })
+      expect(insets?.sources).toContainEqual(
+        expect.objectContaining({
+          type: cutout,
+          frame: { x: 0, y: 0, width: 136, height: 1080 },
+        }),
+      )
+      // The providers repeat the sources after "mSource=": not read twice.
+      expect(
+        insets?.sources.filter((source) => source.type === status),
+      ).toHaveLength(1)
+    },
+  )
+
+  it('keeps the frame of a cutout side that is not there on API 30', () => {
+    const insets = parseWindowInsets(
+      recordedText(
+        'api-30/hole/rotation-1/settings/dumpsys-window-displays.txt',
+      ),
+    )
+
+    expect(insets?.sources).toContainEqual(
+      expect.objectContaining({
+        type: 'ITYPE_TOP_DISPLAY_CUTOUT',
+        frame: { x: 0, y: 0, width: 2400, height: -2147483648 },
+      }),
+    )
+  })
+
+  it('gives no sources and no cutout for a dump that has neither', () => {
+    expect(
+      parseWindowInsets(
+        '  Display: mDisplayId=0\n    init=1080x2400 420dpi cur=1080x2400\n',
+      ),
+    ).toEqual({
+      sources: [],
+      cutout: { top: 0, right: 0, bottom: 0, left: 0 },
+      cutoutRects: [],
+    })
   })
 })
 

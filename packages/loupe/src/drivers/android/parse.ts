@@ -1,4 +1,4 @@
-import { type Size } from '../../core/units'
+import { type Insets, type Rect, type Size } from '../../core/units'
 import { parseXml, type XmlElement } from './xml'
 
 export interface AdbDeviceEntry {
@@ -130,6 +130,92 @@ export function parseWindowDisplays(
     rotation: Number(rotation[1]),
     appOrientation: /\bmCurrentAppOrientation=([A-Z_]+)/.exec(block)?.[1],
     focus: /^\s*mCurrentFocus=Window\{\S+ u\d+ (.+)\}\s*$/m.exec(block)?.[1],
+  }
+}
+
+export interface InsetSource {
+  /** As the dump names it: `statusBars` from API 34, `ITYPE_STATUS_BAR` before. */
+  type: string
+  /** In px of the current orientation. */
+  frame: Rect
+  visible: boolean
+  /** `TOP`, `BOTTOM`, `LEFT`, `RIGHT` or `NONE`. From API 35 only. */
+  sideHint?: string
+}
+
+export interface WindowInsetsDump {
+  sources: InsetSource[]
+  /** The cutout per edge, in px of the current orientation. */
+  cutout: Insets
+  /** The cutout shapes, in px. Empty with no cutout. */
+  cutoutRects: Rect[]
+}
+
+const INSET_SOURCE =
+  /^\s+InsetsSource (?:id=\S+ )?type=(\S+) frame=\[(-?\d+),(-?\d+)\]\[(-?\d+),(-?\d+)\] visible=(true|false)(?:.*\bsideHint=([A-Z]+))?/
+// API 30 wraps it: mDisplayCutout=WmDisplayCutout{DisplayCutout{insets=…
+const CUTOUT_INSETS =
+  /mDisplayCutout=\S*?DisplayCutout\{insets=Rect\((-?\d+), (-?\d+) - (-?\d+), (-?\d+)\)/
+const CUTOUT_BOUNDS = /mDisplayCutout=.*?boundingRect=\{Bounds=\[([^\]]*)\]/
+const RECT = /Rect\((-?\d+), (-?\d+) - (-?\d+), (-?\d+)\)/g
+
+function rectFromEdges(
+  left: number,
+  top: number,
+  right: number,
+  bottom: number,
+): Rect {
+  return { x: left, y: top, width: right - left, height: bottom - top }
+}
+
+/**
+ * Reads the insets of one display from `dumpsys window displays`: the
+ * `InsetsSource` lines right after `WindowInsetsStateController`, and the
+ * first `mDisplayCutout`. Both are in the current orientation. A source can
+ * have an empty or upside-down frame, for example a cutout side that isn't
+ * there on API 30: `[0,0][2400,-2147483648]`.
+ */
+export function parseWindowInsets(
+  text: string,
+  displayId = 0,
+): WindowInsetsDump | undefined {
+  const block = displayBlock(text, displayId)
+  if (!block) return undefined
+
+  const sources: InsetSource[] = []
+  const start = block.indexOf('WindowInsetsStateController')
+  const lines = start === -1 ? [] : block.slice(start).split(/\r?\n/)
+  for (const line of lines.slice(1)) {
+    const match = INSET_SOURCE.exec(line)
+    if (!match) {
+      if (sources.length > 0) break
+      continue
+    }
+    const [, type = '', left, top, right, bottom, visible, sideHint] = match
+    sources.push({
+      type,
+      frame: rectFromEdges(
+        Number(left),
+        Number(top),
+        Number(right),
+        Number(bottom),
+      ),
+      visible: visible === 'true',
+      sideHint,
+    })
+  }
+
+  const cutout = CUTOUT_INSETS.exec(block)?.slice(1).map(Number) ?? []
+  const [left = 0, top = 0, right = 0, bottom = 0] = cutout
+  const bounds = CUTOUT_BOUNDS.exec(block)?.[1] ?? ''
+  return {
+    sources,
+    cutout: { top, right, bottom, left },
+    cutoutRects: [...bounds.matchAll(RECT)]
+      .map(([, l, t, r, b]) =>
+        rectFromEdges(Number(l), Number(t), Number(r), Number(b)),
+      )
+      .filter((rect) => rect.width > 0 && rect.height > 0),
   }
 }
 

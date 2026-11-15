@@ -3,6 +3,7 @@ import { devicesCommand } from './devices'
 import { doubleTapCommand } from './double-tap'
 import { dragCommand } from './drag'
 import { holdCommand } from './hold'
+import { insetsCommand } from './insets'
 import { keyCommand } from './key'
 import { openUrlCommand } from './open-url'
 import { rotateCommand } from './rotate'
@@ -19,6 +20,7 @@ export const registry = createRegistry([
   doubleTapCommand,
   dragCommand,
   holdCommand,
+  insetsCommand,
   keyCommand,
   openUrlCommand,
   rotateCommand,
