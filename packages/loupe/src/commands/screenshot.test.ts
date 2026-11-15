@@ -79,6 +79,37 @@ describe('screenshot', () => {
     expect(existsSync(out)).toBe(false)
   })
 
+  it('takes --app, and writes the file while that app is in front', async () => {
+    const { context } = emulator36()
+    const out = path.join(dir, 'settings.png')
+    const io = { out: () => {}, err: () => {}, isTTY: false }
+
+    expect(
+      await run(
+        ['screenshot', out, '--app', 'com.android.settings'],
+        io,
+        registry,
+        context,
+      ),
+    ).toBe(0)
+    expect(existsSync(out)).toBe(true)
+  })
+
+  it('writes no file while another app is in front', async () => {
+    const { context } = emulator36()
+    const out = path.join(dir, 'settings.png')
+
+    expect(
+      await runCommand(
+        registry,
+        'screenshot',
+        { out, app: 'com.example.app' },
+        context,
+      ),
+    ).toMatchObject({ ok: false, error: { code: 'app_not_in_front' } })
+    expect(existsSync(out)).toBe(false)
+  })
+
   it('needs a file', async () => {
     const { context, calls } = emulator36()
 

@@ -59,6 +59,8 @@ describe.each(API_LEVELS)('the parsers, on the output of API %i', (level) => {
       current: { width: 2400, height: 1080 },
       rotation: 1,
       appOrientation: 'SCREEN_ORIENTATION_UNSPECIFIED',
+      focus:
+        'com.android.settings/com.android.settings.homepage.SettingsHomepageActivity',
     })
   })
 
@@ -71,6 +73,9 @@ describe.each(API_LEVELS)('the parsers, on the output of API %i', (level) => {
       current: { width: 1080, height: 2400 },
       rotation: 0,
       appOrientation: 'SCREEN_ORIENTATION_NOSENSOR',
+      focus: expect.stringMatching(
+        /^com\.google\.android\.apps\.nexuslauncher\//,
+      ),
     })
   })
 })
@@ -124,6 +129,44 @@ describe('parseWindowDisplays', () => {
       rotation: 0,
     })
     expect(parseWindowDisplays(text, 5)).toBeUndefined()
+  })
+
+  // No recording has these focus lines, so they're written by hand in the
+  // format of the recorded ones.
+  it.each([
+    ['mCurrentFocus=null', undefined],
+    ['mCurrentFocus=Window{1a2b3c u0 NotificationShade}', 'NotificationShade'],
+    [
+      'mCurrentFocus=Window{1a2b3c u0 Splash Screen com.example.app}\r',
+      'Splash Screen com.example.app',
+    ],
+  ])('reads the focus from "%s"', (line, focus) => {
+    const text = [
+      '  Display: mDisplayId=0',
+      '    init=1080x2400 420dpi cur=1080x2400 app=1080x2400',
+      `  ${line}`,
+      '    mRotation=0 mDeferredRotationPauseCount=0',
+    ].join('\n')
+
+    expect(parseWindowDisplays(text)?.focus).toBe(focus)
+  })
+
+  it('reads the focus of the display that has the id', () => {
+    const text = [
+      '  Display: mDisplayId=0',
+      '    init=1080x2400 420dpi cur=1080x2400 app=1080x2400',
+      '  mCurrentFocus=null',
+      '    mRotation=0 mDeferredRotationPauseCount=0',
+      '  Display: mDisplayId=2',
+      '    init=720x1280 320dpi cur=720x1280 app=720x1280',
+      '  mCurrentFocus=Window{1a2b3c u0 com.example.app/.MainActivity}',
+      '    mRotation=0 mDeferredRotationPauseCount=0',
+    ].join('\n')
+
+    expect(parseWindowDisplays(text)?.focus).toBeUndefined()
+    expect(parseWindowDisplays(text, 2)?.focus).toBe(
+      'com.example.app/.MainActivity',
+    )
   })
 
   it('gives undefined when the rotation is missing', () => {

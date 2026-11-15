@@ -8,7 +8,7 @@ const ADB = 'adb -s emulator-5554'
 
 function emulator(level: number, screencap: FakeRun) {
   const api = `api-${level}`
-  const { context } = fakeContext(
+  const { context, calls } = fakeContext(
     byCommand({
       'adb devices -l': recorded(`${api}/host/adb-devices-l.txt`),
       [`${ADB} shell getprop`]: recorded(`${api}/device/getprop.txt`),
@@ -18,13 +18,13 @@ function emulator(level: number, screencap: FakeRun) {
       [`${ADB} exec-out screencap -p`]: screencap,
     }),
   )
-  return () => selectAndroidDevice(context)
+  return { calls, target: () => selectAndroidDevice(context) }
 }
 
 describe.each([30, 36])('captureAndroid, on API %i', (level) => {
   it('gives the PNG upright in landscape, with the display state', async () => {
     const png = recorded(`api-${level}/none/rotation-1/settings.png`)
-    const target = emulator(level, png)
+    const { target } = emulator(level, png)
 
     const capture = await captureAndroid(await target())
 
@@ -40,7 +40,7 @@ describe.each([30, 36])('captureAndroid, on API %i', (level) => {
 
 describe('captureAndroid', () => {
   it('fails when screencap gives no PNG', async () => {
-    const target = emulator(36, { stdout: 'Error: capture failed\n' })
+    const { target } = emulator(36, { stdout: 'Error: capture failed\n' })
 
     await expect(captureAndroid(await target())).rejects.toMatchObject({
       code: 'tool_failed',
@@ -48,25 +48,15 @@ describe('captureAndroid', () => {
     })
   })
 
-  it('refuses a real device, and takes nothing', async () => {
-    const { context, calls } = fakeContext(
-      byCommand({
-        'adb devices -l': {
-          stdout:
-            'List of devices attached\nPHONE123               device product:phone model:Phone_Model device:phone transport_id:4\n\n',
-        },
-        'adb -s PHONE123 shell getprop': {
-          stdout: '[ro.build.version.sdk]: [35]\n[sys.boot_completed]: [1]\n',
-        },
-      }),
+  it('takes nothing while another app is in front', async () => {
+    const { calls, target } = emulator(
+      36,
+      recorded('api-36/none/rotation-1/settings.png'),
     )
 
     await expect(
-      captureAndroid(await selectAndroidDevice(context)),
-    ).rejects.toMatchObject({ code: 'unsupported' })
-    expect(calls.map((call) => call.args.join(' '))).toEqual([
-      'devices -l',
-      '-s PHONE123 shell getprop',
-    ])
+      captureAndroid(await target(), 'com.example.app'),
+    ).rejects.toMatchObject({ code: 'app_not_in_front' })
+    expect(calls.some((call) => call.args.includes('screencap'))).toBe(false)
   })
 })

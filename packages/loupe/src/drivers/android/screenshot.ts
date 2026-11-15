@@ -3,7 +3,8 @@ import { LoupeError } from '../../core/errors'
 import { pngSize } from '../../core/png'
 import { type Size } from '../../core/units'
 import { type AndroidTarget } from './devices'
-import { readAndroidDisplay } from './display'
+import { toDisplayState } from './display'
+import { whileInFront } from './foreground'
 
 export interface Capture {
   png: Buffer
@@ -14,20 +15,17 @@ export interface Capture {
 }
 
 /**
- * Takes the screen as a PNG. `screencap` gives it upright in each
- * orientation, so loupe doesn't turn it. A real device can show the user's
- * other apps, so it waits for a check of the app in front.
+ * Takes the screen as a PNG, only while `app` is in front (see
+ * `whileInFront`). `screencap` gives it upright in each orientation, so
+ * loupe doesn't turn it.
  */
-export async function captureAndroid(target: AndroidTarget): Promise<Capture> {
-  if (target.kind === 'device') {
-    throw new LoupeError(
-      'unsupported',
-      `loupe doesn't take screenshots of a real device yet, because the screen can show your other apps. Use an emulator.`,
-    )
-  }
-
-  const display = await readAndroidDisplay(target)
-  const png = await target.adb.run(['exec-out', 'screencap', '-p'])
+export async function captureAndroid(
+  target: AndroidTarget,
+  app?: string,
+): Promise<Capture> {
+  const { value: png, display } = await whileInFront(target, app, () =>
+    target.adb.run(['exec-out', 'screencap', '-p']),
+  )
   const pixels = pngSize(png)
   if (!pixels) {
     throw new LoupeError(
@@ -35,5 +33,5 @@ export async function captureAndroid(target: AndroidTarget): Promise<Capture> {
       `screencap on ${target.serial} didn't give a PNG.`,
     )
   }
-  return { png, pixels, display }
+  return { png, pixels, display: toDisplayState(display) }
 }

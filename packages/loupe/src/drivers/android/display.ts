@@ -26,7 +26,7 @@ export interface RotateOptions {
   interval?: number
 }
 
-async function readWindowDisplay(
+export async function readWindowDisplay(
   target: AndroidTarget,
 ): Promise<WindowDisplay> {
   const display = parseWindowDisplays(
@@ -41,7 +41,7 @@ async function readWindowDisplay(
   return display
 }
 
-function toDisplayState(display: WindowDisplay): DisplayState {
+export function toDisplayState(display: WindowDisplay): DisplayState {
   const scale = display.density / 160
   return {
     orientation: orientationOf(display.rotation),

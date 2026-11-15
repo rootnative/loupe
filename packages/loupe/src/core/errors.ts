@@ -10,6 +10,7 @@ export const ERROR_CODES = [
   'device_unavailable',
   'unsupported',
   'orientation_locked',
+  'app_not_in_front',
   'internal',
 ] as const
 

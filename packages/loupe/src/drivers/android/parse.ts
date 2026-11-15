@@ -20,6 +20,12 @@ export interface WindowDisplay {
   rotation: number
   /** What the app in front asks for, for example `SCREEN_ORIENTATION_PORTRAIT`. */
   appOrientation?: string
+  /**
+   * The title of the window that has the focus, for example
+   * `com.example.app/com.example.app.MainActivity`. None when no window has
+   * it, for example when the screen is off.
+   */
+  focus?: string
 }
 
 const FIELD = /^([a-z_]+):(\S*)$/
@@ -99,6 +105,7 @@ function displayBlock(text: string, displayId: number): string | undefined {
  * holds the natural size and density, `base=` when an override is set, and
  * `cur=`, the size in the current rotation. `mRotation=` is the rotation of
  * the screen now. The user rotation setting can differ from it.
+ * `mCurrentFocus=` names the window that has the focus on this display.
  */
 export function parseWindowDisplays(
   text: string,
@@ -121,6 +128,7 @@ export function parseWindowDisplays(
     current: { width: Number(current[1]), height: Number(current[2]) },
     rotation: Number(rotation[1]),
     appOrientation: /\bmCurrentAppOrientation=([A-Z_]+)/.exec(block)?.[1],
+    focus: /^\s*mCurrentFocus=Window\{\S+ u\d+ (.+)\}\s*$/m.exec(block)?.[1],
   }
 }
 

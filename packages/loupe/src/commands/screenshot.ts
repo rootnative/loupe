@@ -2,7 +2,7 @@ import { mkdir, writeFile } from 'node:fs/promises'
 import path from 'node:path'
 import { z } from 'zod'
 import { defineCommand } from '../core/command'
-import { deviceField } from '../core/device'
+import { appField, deviceField } from '../core/device'
 import { describeDisplay, displaySchema } from '../core/display'
 import { LoupeError } from '../core/errors'
 import { fromPixels, type Size } from '../core/units'
@@ -23,15 +23,17 @@ export const screenshotCommand = defineCommand({
       .describe(
         'The PNG file to write. loupe makes its folder, and replaces a file that is there.',
       ),
+    app: appField,
     device: deviceField,
   }),
   positionals: ['out'],
   output: displaySchema.extend({
     file: z.string().describe('The PNG file, as an absolute path.'),
   }),
-  run: async ({ out, device }, context) => {
+  run: async ({ out, app, device }, context) => {
     const { png, pixels, display } = await captureAndroid(
       await selectAndroidDevice(context, device),
+      app,
     )
 
     // A screen that turns between the two reads would give the PNG a wrong
