@@ -93,3 +93,62 @@ jobs:
 
       - name: Run the built CLI
         run: node packages/loupe/dist/bin.js version
+
+  android:
+    name: Android smoke (API ${{ matrix.api-level }})
+    # The built CLI on a clean emulator. API 30 is the lowest level that loupe
+    # takes, and there its gestures go through the emulator console. 36 is the
+    # newest level.
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        api-level: [30, 36]
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6.0.10
+
+      - name: Setup Node.js
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version-file: .nvmrc
+          cache: "pnpm"
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Build
+        run: pnpm run build
+
+      # The emulator needs KVM. A Linux runner gives access to it only with
+      # this udev rule.
+      - name: Enable KVM
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+
+      # The same emulator as the fixture recorder, so the checks of the
+      # script hold for its screen, its insets and its Settings app.
+      - name: Run the smoke test on an emulator
+        uses: reactivecircus/android-emulator-runner@a421e43855164a8197daf9d8d40fe71c6996bb0d # v2.38.0
+        with:
+          api-level: ${{ matrix.api-level }}
+          target: google_apis
+          arch: x86_64
+          profile: pixel_6
+          disable-animations: true
+          script: node scripts/android-smoke.mjs "${{ runner.temp }}/android-smoke" ${{ matrix.api-level }}
+
+      - name: Upload the smoke output
+        if: failure()
+        uses: actions/upload-artifact@330a01c490aca151604b8cf639adc76d48f6c5d4 # v5.0.0
+        with:
+          name: android-smoke-api-${{ matrix.api-level }}
+          path: ${{ runner.temp }}/android-smoke/
+          retention-days: 7
+          if-no-files-found: ignore
