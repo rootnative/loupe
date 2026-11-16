@@ -1,12 +1,13 @@
 import { describe, expect, it } from 'vitest'
 import { byCommand, type FakeRun, fakeContext } from '../../testing/fake-exec'
 import { recorded } from '../../testing/fixtures'
+import { pngHeader } from '../../testing/png'
 import { selectAndroidDevice } from './devices'
 import { captureAndroid } from './screenshot'
 
 const ADB = 'adb -s emulator-5554'
 
-function emulator(level: number, screencap: FakeRun) {
+function emulator(level: number, screencap: FakeRun | readonly FakeRun[]) {
   const api = `api-${level}`
   const { context, calls } = fakeContext(
     byCommand({
@@ -45,6 +46,36 @@ describe('captureAndroid', () => {
     await expect(captureAndroid(await target())).rejects.toMatchObject({
       code: 'tool_failed',
       message: "screencap on emulator-5554 didn't give a PNG.",
+    })
+  })
+
+  it('takes the screen again until the pixels have turned with the display', async () => {
+    const png = recorded('api-36/none/rotation-1/settings.png')
+    const { calls, target } = emulator(36, [
+      { stdout: pngHeader(1080, 2400) },
+      png,
+    ])
+
+    const capture = await captureAndroid(await target(), undefined, {
+      interval: 0,
+    })
+
+    expect(capture.png).toEqual(png.stdout)
+    expect(capture.pixels).toEqual({ width: 2400, height: 1080 })
+    expect(
+      calls.filter((call) => call.args.includes('screencap')),
+    ).toHaveLength(2)
+  })
+
+  it('fails with timeout when the pixels do not turn in time', async () => {
+    const { target } = emulator(36, { stdout: pngHeader(1080, 2400) })
+
+    await expect(
+      captureAndroid(await target(), undefined, { timeout: 0 }),
+    ).rejects.toMatchObject({
+      code: 'timeout',
+      message:
+        "The screen is 2400 × 1080 px, but screencap still gave 1080 × 2400 px after 0 ms. The screen is still turning. Wait until it's still, then try again.",
     })
   })
 

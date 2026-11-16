@@ -13,7 +13,7 @@ import { registry } from './index'
 const ADB = 'adb -s emulator-5554'
 const SETTINGS = recorded('api-36/none/rotation-1/settings.png')
 
-function emulator36(screencap: FakeRun = SETTINGS) {
+function emulator36(screencap: FakeRun | readonly FakeRun[] = SETTINGS) {
   return fakeContext(
     byCommand({
       'adb devices -l': recorded('api-36/host/adb-devices-l.txt'),
@@ -69,14 +69,20 @@ describe('screenshot', () => {
     ])
   })
 
-  it('writes no file when the screen turned during the capture', async () => {
-    const { context } = emulator36({ stdout: pngHeader(1080, 2400) })
+  it('waits for the pixels to turn with the display, then writes the file', async () => {
+    const { context } = emulator36([
+      { stdout: pngHeader(1080, 2400) },
+      SETTINGS,
+    ])
     const out = path.join(dir, 'settings.png')
 
     expect(
       await runCommand(registry, 'screenshot', { out }, context),
-    ).toMatchObject({ ok: false, error: { code: 'tool_failed' } })
-    expect(existsSync(out)).toBe(false)
+    ).toMatchObject({
+      ok: true,
+      data: { pixels: { width: 2400, height: 1080 } },
+    })
+    expect(await readFile(out)).toEqual(SETTINGS.stdout)
   })
 
   it('takes --app, and writes the file while that app is in front', async () => {
