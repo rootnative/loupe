@@ -6,14 +6,14 @@ import {
   type ProbeReport,
 } from './report'
 
-const report: ProbeReport = {
+const report = {
   insets: { top: 0, right: 59, bottom: 21, left: 59 },
   window: { width: 852, height: 393 },
   scale: 3,
   direction: 'ltr',
   colorScheme: 'dark',
   route: '/settings',
-}
+} satisfies ProbeReport
 
 function decode(label: string): unknown {
   return JSON.parse(label.slice(PROBE_PREFIX.length))
@@ -29,6 +29,15 @@ describe('encodeProbeReport', () => {
 
   it('leaves the route out when the app does not pass it', () => {
     const { route: _route, ...rest } = report
+
+    expect(decode(encodeProbeReport(rest))).toEqual({
+      v: PROBE_FORMAT,
+      ...rest,
+    })
+  })
+
+  it('leaves out the insets and the colour scheme when they are unknown', () => {
+    const { insets: _insets, colorScheme: _colorScheme, ...rest } = report
 
     expect(decode(encodeProbeReport(rest))).toEqual({
       v: PROBE_FORMAT,

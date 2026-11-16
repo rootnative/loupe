@@ -17,13 +17,17 @@ export interface ProbeInsets {
 
 /** Sizes are in pt on iOS and in dp on Android. */
 export interface ProbeReport {
-  /** The safe-area insets of the current orientation. */
-  insets: ProbeInsets
+  /**
+   * The safe-area insets of the current orientation. Left out when the probe
+   * has no `SafeAreaProvider` above it.
+   */
+  insets?: ProbeInsets
   window: { width: number; height: number }
   /** Pixels per pt or dp. */
   scale: number
   direction: 'ltr' | 'rtl'
-  colorScheme: 'light' | 'dark'
+  /** Left out when the system gives no colour scheme. */
+  colorScheme?: 'light' | 'dark'
   /** The current route, when the app passes it. */
   route?: string
 }
@@ -37,7 +41,7 @@ export function encodeProbeReport(report: ProbeReport): string {
     PROBE_PREFIX +
     JSON.stringify({
       v: PROBE_FORMAT,
-      insets: {
+      insets: insets && {
         top: insets.top,
         right: insets.right,
         bottom: insets.bottom,

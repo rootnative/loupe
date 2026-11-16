@@ -8,6 +8,9 @@ export default defineConfig({
   // The code runs inside the app, not in Node.
   platform: 'neutral',
   target: 'es2022',
+  esbuildOptions(options) {
+    options.jsx = 'automatic'
+  },
   outDir: 'dist',
   dts: true,
   clean: true,

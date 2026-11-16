@@ -1,3 +1,4 @@
+export { LoupeProbe, type LoupeProbeProps } from './probe'
 export {
   encodeProbeReport,
   PROBE_FORMAT,
