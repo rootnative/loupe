@@ -1,0 +1,24 @@
+{
+  "name": "probe-app",
+  "private": true,
+  "version": "0.0.0",
+  "description": "A small Expo app that renders the loupe probe. CI opens it in Expo Go on an emulator to record and check the probe.",
+  "license": "MIT",
+  "main": "index.ts",
+  "scripts": {
+    "start": "expo start",
+    "typecheck": "tsc --noEmit",
+    "lint": "eslint . --max-warnings 0"
+  },
+  "dependencies": {
+    "@rootnative/loupe-probe": "workspace:*",
+    "expo": "58.0.25",
+    "react": "19.3.0",
+    "react-native": "0.88.1",
+    "react-native-safe-area-context": "5.11.1"
+  },
+  "devDependencies": {
+    "@types/react": "19.3.0",
+    "typescript": "^5.9.3"
+  }
+}

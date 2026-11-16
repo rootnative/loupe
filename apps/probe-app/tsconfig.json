@@ -1,0 +1,11 @@
+{
+  "extends": "expo/tsconfig.base",
+  "compilerOptions": {
+    "strict": true,
+    // The probe's types come from its source, so a type check needs no build
+    // first. Metro still loads the built package.
+    "paths": {
+      "@rootnative/loupe-probe": ["../../packages/probe/src/index.ts"]
+    }
+  }
+}

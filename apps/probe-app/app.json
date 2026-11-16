@@ -1,0 +1,8 @@
+{
+  "expo": {
+    "name": "Probe app",
+    "slug": "probe-app",
+    "orientation": "default",
+    "userInterfaceStyle": "automatic"
+  }
+}

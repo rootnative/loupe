@@ -9,6 +9,9 @@ dist/
 # Turborepo
 .turbo/
 
+# Expo
+.expo/
+
 # Logs
 *.log
 npm-debug.log*

@@ -9,6 +9,7 @@ export default [
     ignores: [
       '**/dist/**',
       '**/.turbo/**',
+      '**/.expo/**',
       '**/node_modules/**',
       '**/coverage/**',
     ],
