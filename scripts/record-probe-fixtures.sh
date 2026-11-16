@@ -108,11 +108,12 @@ screen() {
   capture "$1.ui-tty.txt" "$adb" exec-out uiautomator dump /dev/tty
 }
 
-# centre_of <ui-file> <text>: "x y", the centre in px of the first node with
-# that text (XML-escaped) in a uiautomator dump. Empty when it isn't there.
+# centre_of <ui-file> <attribute> <value>: "x y", the centre in px of the
+# first node with that value (XML-escaped) in a uiautomator dump. Empty when
+# it isn't there.
 centre_of() {
   local bounds left top right bottom
-  bounds=$(grep -o "text=\"$2\"[^>]*bounds=\"[^\"]*\"" "$1" | head -1 |
+  bounds=$(grep -o " $2=\"$3\"[^>]*bounds=\"[^\"]*\"" "$1" | head -1 |
     grep -o 'bounds="[^"]*"' | sed 's/[^0-9]/ /g')
   [ -n "$bounds" ] || return 0
   read -r left top right bottom <<<"$bounds"
@@ -144,15 +145,17 @@ matches() {
 
 # wait_probe <dir> <want> <limit-s> [start-ms]
 # Dumps the screen again and again until the probe shows and matches <want>,
-# for up to <limit-s> seconds from [start-ms] (now by default). A sheet of
-# Expo Go with a "Continue" button gets a tap first, and its screen is kept.
+# for up to <limit-s> seconds from [start-ms] (now by default). On the first
+# open, Expo Go shows its developer menu: a sheet with a "Continue" button,
+# then the menu with a "Close" button. The dump of either one has none of
+# the app, so the script taps each button, and keeps the screens.
 # <dir>/probe-wait.txt gets one line per dump: the time since the start, the
 # window in front, and the probe in the dump. The last dump stays as
 # <dir>/last.ui-tty.txt.
 wait_probe() {
   local dir=$1 want=$2 limit_ms=$(($3 * 1000)) start=${4:-$(now_ms)}
   local log=$out/$1/probe-wait.txt file=$out/$1/last.ui-tty.txt
-  local report focus target x y
+  local report focus sheet target x y
   mkdir -p "$out/$dir"
   : >"$log"
   while :; do
@@ -162,13 +165,22 @@ wait_probe() {
       grep -m1 -o 'mCurrentFocus=[^}]*' | tr -d '\r')
     echo "$(($(now_ms) - start)) ms, ${focus:-no focus}, probe: ${report:-none}" >>"$log"
 
-    target=$(centre_of "$file" Continue)
+    sheet=
+    target=
+    if grep -q 'text="Continue"' "$file"; then
+      sheet=onboarding
+      target=$(centre_of "$file" text Continue)
+    elif grep -q 'text="Go home"' "$file"; then
+      sheet=dev-menu
+      target=$(centre_of "$file" content-desc Close)
+    fi
+
     if [ -n "$target" ]; then
-      cp "$file" "$out/$dir/sheet.ui-tty.txt"
-      capture "$dir/sheet.png" "$adb" exec-out screencap -p
+      cp "$file" "$out/$dir/$sheet.ui-tty.txt"
+      capture "$dir/$sheet.png" "$adb" exec-out screencap -p
       read -r x y <<<"$target"
       "$adb" shell input tap "$x" "$y"
-      echo "tapped Continue at $x, $y" >>"$log"
+      echo "tapped the button of the $sheet at $x, $y" >>"$log"
     elif [ -n "$report" ] && matches "$report" "$want"; then
       echo "found $want" >>"$log"
       echo "$dir: probe after $(($(now_ms) - start)) ms"
