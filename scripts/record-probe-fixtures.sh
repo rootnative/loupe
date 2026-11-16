@@ -121,11 +121,13 @@ centre_of() {
 }
 
 # probe_of <ui-file>: the probe report as JSON, from the content-desc that
-# starts with "loupe:". Empty when the dump has no probe.
+# starts with "loupe:". Empty when the dump has no probe. A value with a
+# double quote comes in single quotes (API 33–36), so both forms count.
 probe_of() {
-  grep -o 'content-desc="loupe:[^"]*"' "$1" 2>/dev/null | head -1 |
-    sed -e 's/^content-desc="loupe://' -e 's/"$//' \
-      -e 's/&quot;/"/g' -e 's/&amp;/\&/g'
+  grep -o -e "content-desc='loupe:[^']*'" -e 'content-desc="loupe:[^"]*"' "$1" 2>/dev/null |
+    head -1 |
+    sed -e 's/^content-desc=.loupe://' -e 's/.$//' \
+      -e 's/&quot;/"/g' -e "s/&apos;/'/g" -e 's/&amp;/\&/g'
 }
 
 # shape_of <report>: "portrait" or "landscape", from the window in the report.
