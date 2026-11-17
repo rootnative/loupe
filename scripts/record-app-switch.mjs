@@ -7,7 +7,10 @@
 // - base-intent: the base intent of the app's most recent task, from
 //   `dumpsys activity recents`, sent again;
 // - recents-twice: the Recents key two times;
-// - recents-tap: the Recents key, then a tap in the middle of the screen.
+// - recents-tap: the Recents key, then a tap in the middle of the screen;
+// - move-task: `am stack move-task` with the id of the app's most recent
+//   task, to the top of the stack that `am stack list` gives for it;
+// - task-lock: `am task lock` with that id, then `am task lock stop`.
 //
 // Before and after each step it keeps the window in front, the activities,
 // the recent tasks, a uiautomator dump and a screenshot. The probe app shows
@@ -52,7 +55,14 @@ if (!out) {
 }
 mkdirSync(out, { recursive: true })
 
-const METHODS = ['launcher', 'base-intent', 'recents-twice', 'recents-tap']
+const METHODS = [
+  'launcher',
+  'base-intent',
+  'recents-twice',
+  'recents-tap',
+  'move-task',
+  'task-lock',
+]
 const SETTINGS = 'com.android.settings'
 const ROUTE = '/appstate'
 const BACKGROUND_MS = 2000
@@ -102,14 +112,28 @@ function keepState(dir, name) {
 }
 
 /**
- * The base intent of the most recent task of `app`, as `dumpsys activity
- * recents` gives it: the text between the braces of its `intent=` line.
+ * The most recent task of `app` in `dumpsys activity recents`: its id (the
+ * `#` number of its `Task{…}`) and its base intent (the text between the
+ * braces of its `intent=` line).
  */
-function baseIntentOf(recents, app) {
+function recentTaskOf(recents, app) {
   for (const task of recents.split(/\n(?=\s*\* Recent #\d+:)/)) {
     const intent = /\n\s*intent=\{(.*)\}\s*(?:\n|$)/.exec(task)?.[1]
     if (intent && /\bcmp=(\S+)/.exec(intent)?.[1]?.startsWith(`${app}/`)) {
-      return intent
+      return { id: /Task\{\S+ #(\d+)/.exec(task)?.[1], intent }
+    }
+  }
+  return undefined
+}
+
+/**
+ * The stack (a root task from Android 12) that holds the task, from `am
+ * stack list`: the block that lists `taskId=<id>:`.
+ */
+function stackOf(list, taskId) {
+  for (const block of list.split(/\n(?=(?:Stack|RootTask) id=)/)) {
+    if (block.includes(`taskId=${taskId}:`)) {
+      return /^(?:Stack|RootTask) id=(\d+)/.exec(block)?.[1]
     }
   }
   return undefined
@@ -162,10 +186,10 @@ async function bringBack(method, app, dir) {
       return
     }
     case 'base-intent': {
-      const intent = baseIntentOf(
+      const intent = recentTaskOf(
         adbText(['shell', 'dumpsys', 'activity', 'recents']),
         app,
-      )
+      )?.intent
       writeFileSync(file('intent.txt'), `${intent ?? 'none'}\n`)
       if (intent) {
         const command = amStartOf(intent)
@@ -192,6 +216,38 @@ async function bringBack(method, app, dir) {
           ? ['shell', 'input', 'keyevent', 'KEYCODE_APP_SWITCH']
           : ['shell', 'input', 'tap', String(x), String(y)],
       )
+      return
+    }
+    case 'move-task':
+    case 'task-lock': {
+      const task = recentTaskOf(
+        adbText(['shell', 'dumpsys', 'activity', 'recents']),
+        app,
+      )
+      writeFileSync(file('task.txt'), `${task?.id ?? 'none'}\n`)
+      if (!task?.id) return
+      if (method === 'move-task') {
+        const list = capture(file('stack-list.txt'), [
+          'shell',
+          'am',
+          'stack',
+          'list',
+        ])
+        const stack = stackOf(String(list.stdout), task.id) ?? task.id
+        capture(file('am.txt'), [
+          'shell',
+          'am',
+          'stack',
+          'move-task',
+          task.id,
+          stack,
+          'true',
+        ])
+        return
+      }
+      capture(file('am.txt'), ['shell', 'am', 'task', 'lock', task.id])
+      await sleep(1000)
+      capture(file('stop.txt'), ['shell', 'am', 'task', 'lock', 'stop'])
       return
     }
   }
@@ -346,6 +402,13 @@ try {
   fail(error instanceof Error ? error.message : String(error))
 } finally {
   if (metro) await stopMetro(metro)
+  capture(path.join(out, 'expo-go/lock-stop-end.txt'), [
+    'shell',
+    'am',
+    'task',
+    'lock',
+    'stop',
+  ])
   capture(path.join(out, 'expo-go/force-stop-end.txt'), [
     'shell',
     'am',
