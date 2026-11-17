@@ -3,15 +3,29 @@
 // after the build, on the lowest and the newest API level. It reads the JSON
 // on a pipe, as an agent does.
 //
-// Run it on an emulator only, with the pixel_6 profile of the workflow. Don't
-// run it on a phone: it turns the screen, and touches Settings and the home
-// screen.
+// At the end it opens the probe app (apps/probe-app) in Expo Go, and checks
+// that the safe area of the probe is the system's in portrait and in both
+// landscapes. For that it downloads Expo Go from Expo, and starts Metro on
+// localhost.
+//
+// Run it on an emulator only, with the pixel_6 profile of the workflow, after
+// `pnpm install` and the build. Don't run it on a phone: it turns the screen,
+// touches Settings and the home screen, and installs Expo Go.
 //
 // Usage: node scripts/android-smoke.mjs <out-dir> <api-level>
-// It writes the JSON of each command and the screenshots to <out-dir>.
+// It writes the JSON of each command, the screenshots and the Metro log to
+// <out-dir>.
 
-import { spawnSync } from 'node:child_process'
-import { mkdirSync, readFileSync, writeFileSync } from 'node:fs'
+import { spawn, spawnSync } from 'node:child_process'
+import {
+  mkdirSync,
+  mkdtempSync,
+  openSync,
+  readFileSync,
+  writeFileSync,
+} from 'node:fs'
+import { createRequire } from 'node:module'
+import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { setTimeout as sleep } from 'node:timers/promises'
 
@@ -28,6 +42,10 @@ const ADB = process.env.ANDROID_HOME
   ? path.join(process.env.ANDROID_HOME, 'platform-tools', 'adb')
   : 'adb'
 const SETTINGS = 'com.android.settings'
+const EXPO_GO = 'host.exp.exponent'
+const PROBE_APP = path.resolve('apps/probe-app')
+const PORT = 8081
+const EDGES = ['top', 'right', 'bottom', 'left']
 
 let failures = 0
 let runs = 0
@@ -148,6 +166,216 @@ async function settle() {
       ? `The emulator settled in ${seconds} s.`
       : `The emulator was still busy after ${seconds} s. The checks run anyway.`,
   )
+}
+
+/**
+ * Installs Expo Go for the SDK of the probe app, from the versions list that
+ * the Expo CLI reads too. `-g` grants the permissions, so no permission
+ * dialog covers the app. Gives the SDK version.
+ */
+async function installExpoGo() {
+  const require = createRequire(path.join(PROBE_APP, 'package.json'))
+  const sdk = `${require('expo/package.json').version.split('.')[0]}.0.0`
+  const list = await fetch('https://api.expo.dev/v2/versions/latest')
+  const url = (await list.json()).data?.sdkVersions?.[sdk]?.androidClientUrl
+  if (!url)
+    throw new Error(`The Expo versions list has no Expo Go for SDK ${sdk}.`)
+
+  const download = await fetch(url)
+  if (!download.ok) {
+    throw new Error(`Expo Go didn't download: HTTP ${download.status}.`)
+  }
+  const apk = path.join(
+    mkdtempSync(path.join(tmpdir(), 'expo-go-')),
+    'expo-go.apk',
+  )
+  writeFileSync(apk, Buffer.from(await download.arrayBuffer()))
+
+  const install = spawnSync(ADB, ['install', '-r', '-g', apk], {
+    encoding: 'utf8',
+    timeout: 300_000,
+  })
+  if (install.status !== 0) {
+    throw new Error(
+      `Expo Go didn't install: ${install.stdout}${install.stderr}`,
+    )
+  }
+  return sdk
+}
+
+/**
+ * Starts Metro for the probe app on localhost only; `adb reverse` gives the
+ * port to the emulator. The log goes to <out-dir>/metro.log.
+ */
+function startMetro() {
+  const require = createRequire(path.join(PROBE_APP, 'package.json'))
+  const log = openSync(path.join(out, 'metro.log'), 'w')
+  return spawn(
+    process.execPath,
+    [
+      require.resolve('expo/bin/cli'),
+      'start',
+      '--localhost',
+      '--port',
+      String(PORT),
+    ],
+    {
+      cwd: PROBE_APP,
+      env: { ...process.env, CI: '1', EXPO_NO_TELEMETRY: '1' },
+      stdio: ['ignore', log, log],
+    },
+  )
+}
+
+/**
+ * Waits until Metro runs, then fetches the bundle once: a cold bundle can
+ * take longer than Expo Go waits. Gives the time in ms.
+ */
+async function warmMetro(metro) {
+  const start = Date.now()
+  const base = `http://127.0.0.1:${PORT}`
+  for (;;) {
+    if (metro.exitCode !== null)
+      throw new Error('Metro stopped. See metro.log.')
+    const status = await fetch(`${base}/status`)
+      .then((response) => response.text())
+      .catch(() => '')
+    if (status.includes('packager-status:running')) break
+    if (Date.now() - start > 180_000) {
+      throw new Error("Metro didn't start in 3 minutes. See metro.log.")
+    }
+    await sleep(1000)
+  }
+
+  const manifest = await fetch(base, {
+    headers: {
+      'expo-platform': 'android',
+      accept: 'application/expo+json,application/json',
+    },
+  }).then((response) => response.json())
+  const bundle = await fetch(manifest.launchAsset.url, {
+    signal: AbortSignal.timeout(600_000),
+  })
+  await bundle.arrayBuffer()
+  if (!bundle.ok) {
+    throw new Error(`Metro didn't give the bundle: HTTP ${bundle.status}.`)
+  }
+  return Date.now() - start
+}
+
+/**
+ * Reads the screen with `loupe ui` until the probe shows, for up to `limit`
+ * ms. On the first open, Expo Go shows its developer menu: a sheet with a
+ * "Continue" button, then the menu with a "Close" button. A busy emulator can
+ * show an "isn't responding" dialog for another app. The dump of each has
+ * none of the app, so loupe taps each button, as an agent does.
+ */
+async function waitForProbe(limit) {
+  const start = Date.now()
+  let screen
+  do {
+    screen = loupe('ui')
+    if (screen.data?.probe) return { screen, ms: Date.now() - start }
+
+    const nodes = screen.data?.nodes ?? []
+    const has = (test) => findNode(nodes, test) !== undefined
+    if (has((node) => node.id === 'android:id/aerr_wait')) {
+      loupe('tap', '--id', 'android:id/aerr_wait')
+    } else if (has((node) => node.text === 'Continue')) {
+      loupe('tap', '--text', 'Continue', '--app', EXPO_GO)
+    } else if (has((node) => node.text === 'Go home')) {
+      loupe('tap', '--label', 'Close', '--app', EXPO_GO)
+    }
+    await sleep(1000)
+  } while (Date.now() - start < limit)
+  return { screen, ms: Date.now() - start }
+}
+
+function describeInsets(insets) {
+  return insets
+    ? EDGES.map(
+        (edge) => `${edge} ${Math.round(insets[edge] * 100) / 100}`,
+      ).join(', ')
+    : 'none'
+}
+
+/**
+ * The M1b gate. In portrait and in both landscapes, `insets` takes the safe
+ * area from the probe, and it is the system's (the system bars and the
+ * cutout) to half a pixel, with no warning. The two landscapes must mirror
+ * each other, so the probe follows each side.
+ */
+async function checkProbeApp(metro) {
+  const sdk = await installExpoGo()
+  const warm = await warmMetro(metro)
+  console.log(
+    `Expo Go for SDK ${sdk} is in, and Metro is warm after ${warm} ms.`,
+  )
+  adb('reverse', `tcp:${PORT}`, `tcp:${PORT}`)
+
+  const opened = loupe('open-url', `exp://127.0.0.1:${PORT}`, '--app', EXPO_GO)
+  check(opened.ok, 'open-url: Expo Go opens the probe app')
+  let found = await waitForProbe(300_000)
+  if (found.screen.data?.probe) {
+    // A sheet can show a moment after the app.
+    await sleep(3000)
+    found = await waitForProbe(60_000)
+  }
+  const probe = found.screen.data?.probe
+  check(
+    probe?.route === '/' &&
+      !findNode(found.screen.data.nodes, (node) =>
+        node.label?.startsWith('loupe:'),
+      ),
+    `ui: the report of the probe, after ${found.ms} ms, with no probe node in the tree`,
+  )
+  if (!probe) {
+    keepScreen('probe-timeout.png')
+    return
+  }
+
+  const safeAreas = {}
+  for (const orientation of ['portrait', 'landscape-left', 'landscape-right']) {
+    const turned = loupe('rotate', orientation)
+    const reading = loupe('insets', '--app', EXPO_GO).data
+    const agrees =
+      reading !== undefined &&
+      EDGES.every(
+        (edge) =>
+          Math.abs(
+            reading.safeArea[edge] -
+              Math.max(reading.systemBars[edge], reading.cutout[edge]),
+          ) <=
+          0.5 / reading.scale,
+      )
+    const passed =
+      turned.ok &&
+      reading?.orientation === orientation &&
+      reading.source === 'probe' &&
+      reading.warnings.length === 0 &&
+      agrees
+    check(
+      passed,
+      `insets in ${orientation}: the safe area of the probe is the system's (${describeInsets(reading?.safeArea)} dp)`,
+    )
+    if (!passed) keepScreen(`insets-${orientation}.png`)
+    safeAreas[orientation] = reading?.safeArea
+  }
+
+  const left = safeAreas['landscape-left']
+  const right = safeAreas['landscape-right']
+  const same = (a, b) => Math.abs(a - b) < 0.01
+  check(
+    left !== undefined &&
+      right !== undefined &&
+      same(left.left, right.right) &&
+      same(left.right, right.left) &&
+      same(left.top, right.top) &&
+      same(left.bottom, right.bottom) &&
+      !same(left.left, left.right),
+    'insets: the two landscapes mirror each other, and their sides differ',
+  )
+  loupe('rotate', 'portrait')
 }
 
 adb('wait-for-device')
@@ -286,6 +514,18 @@ check(
   pinch.data?.span.to === 400 && pinch.data.moveTime >= 300,
   `pinch: 200 → 400 dp in ${pinch.data?.moveTime} ms`,
 )
+
+// The probe app in Expo Go, after the other checks: Metro takes the CPU of
+// the runner for a while, and the gesture timings above need it.
+const metro = startMetro()
+try {
+  await checkProbeApp(metro)
+} catch (error) {
+  check(false, `probe app: ${error instanceof Error ? error.message : error}`)
+  keepScreen('probe-app-error.png')
+} finally {
+  metro.kill()
+}
 
 console.log(
   failures === 0

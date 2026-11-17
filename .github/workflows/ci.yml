@@ -99,7 +99,9 @@ jobs:
     # The built CLI on a clean emulator. API 30 is the lowest level that loupe
     # takes, and 36 is the newest. On an emulator, double-tap, drag and pinch
     # go through the emulator console, so no run here reaches their `input`
-    # script: only the fixture tests cover it.
+    # script: only the fixture tests cover it. At the end, the script opens
+    # the probe app in Expo Go (downloaded from Expo, with Metro on
+    # localhost), and checks the safe area of the probe against the system's.
     runs-on: ubuntu-latest
     timeout-minutes: 30
     strategy:
