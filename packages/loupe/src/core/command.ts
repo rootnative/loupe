@@ -28,6 +28,11 @@ export interface Command<
   ): Promise<z.input<O>> | z.input<O>
   /** A short summary for a person at a terminal. JSON is the default. */
   format?(data: z.output<O>): string
+  /**
+   * For a command that checks something: false when the check failed. The
+   * result is still a success with all its data, and the CLI exits 1.
+   */
+  passed?(data: z.output<O>): boolean
 }
 
 export function defineCommand<I extends z.ZodObject, O extends z.ZodType>(

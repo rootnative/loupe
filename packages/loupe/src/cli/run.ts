@@ -56,16 +56,22 @@ export async function run(
   }
 
   const report = (result: CommandResult): number => {
+    const definition = registry.get(result.command)
     if (json) {
       io.out(JSON.stringify(result))
     } else if (result.ok) {
-      const format = registry.get(result.command)?.format
+      const format = definition?.format
       io.out(format?.(result.data) ?? JSON.stringify(result.data, null, 2))
     } else {
       io.err(`loupe ${result.command}: ${result.error.message}`)
       if (exitCodeOf(result) === EXIT_USAGE) {
         io.err('Run "loupe --help" for the commands and their options.')
       }
+    }
+    // A check that ran but failed: the data is all there, and the exit
+    // code says it failed.
+    if (result.ok && definition?.passed?.(result.data) === false) {
+      return EXIT_FAILED
     }
     return exitCodeOf(result)
   }
