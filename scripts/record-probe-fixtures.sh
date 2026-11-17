@@ -149,8 +149,11 @@ matches() {
 # Dumps the screen again and again until the probe shows and matches <want>,
 # for up to <limit-s> seconds from [start-ms] (now by default). On the first
 # open, Expo Go shows its developer menu: a sheet with a "Continue" button,
-# then the menu with a "Close" button. The dump of either one has none of
-# the app, so the script taps each button, and keeps the screens.
+# then the menu with a "Close" button. On a busy emulator, the system can
+# show an "isn't responding" dialog for another app, such as the launcher.
+# The dump of each one has none of the app, so the script taps "Continue",
+# "Close", or "Wait" (by its id, the same in each language), and keeps the
+# screens.
 # <dir>/probe-wait.txt gets one line per dump: the time since the start, the
 # window in front, and the probe in the dump. The last dump stays as
 # <dir>/last.ui-tty.txt.
@@ -169,7 +172,10 @@ wait_probe() {
 
     sheet=
     target=
-    if grep -q 'text="Continue"' "$file"; then
+    if grep -q 'resource-id="android:id/aerr_wait"' "$file"; then
+      sheet=not-responding
+      target=$(centre_of "$file" resource-id android:id/aerr_wait)
+    elif grep -q 'text="Continue"' "$file"; then
       sheet=onboarding
       target=$(centre_of "$file" text Continue)
     elif grep -q 'text="Go home"' "$file"; then
