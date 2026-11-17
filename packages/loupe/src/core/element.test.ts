@@ -130,6 +130,17 @@ describe('findElement', () => {
     )
   })
 
+  it("ends the list with the caller's hint", () => {
+    expect(() =>
+      findElement(
+        tree,
+        { by: 'id', value: 'title' },
+        SCREEN,
+        'Measure one by another selector.',
+      ),
+    ).toThrow(/× 40\. Measure one by another selector\.$/)
+  })
+
   it.each([
     ['Nothing', 'element_not_found'],
     ['Below', 'element_not_found'],

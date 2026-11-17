@@ -137,12 +137,13 @@ export interface FoundElement {
 /**
  * Finds the one element that the selector names, and the point to touch:
  * the centre of the part that is on the screen. Exactly one element must be
- * on the screen.
+ * on the screen; else `element_ambiguous` ends with `whenAmbiguous`.
  */
 export function findElement(
   nodes: readonly UiNode[],
   selector: Selector,
   screen: Size,
+  whenAmbiguous = 'Touch one by its point, or by another selector.',
 ): FoundElement {
   const all = everyNode(nodes)
   const found = all.filter((node) => matches(node, selector))
@@ -167,7 +168,7 @@ export function findElement(
       .map(({ node }) => `${node.type} at ${describeFrame(node.frame)}`)
     throw new LoupeError(
       'element_ambiguous',
-      `${visible.length} elements on the screen have the ${describeSelector(selector)}: ${list.join('; ')}. Touch one by its point, or by another selector.`,
+      `${visible.length} elements on the screen have the ${describeSelector(selector)}: ${list.join('; ')}. ${whenAmbiguous}`,
     )
   }
 

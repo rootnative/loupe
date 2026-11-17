@@ -4,7 +4,13 @@ import { type Insets } from '../../core/units'
 import { byCommand, type FakeRun, fakeContext } from '../../testing/fake-exec'
 import { API_LEVELS, recorded, recordedText } from '../../testing/fixtures'
 import { selectAndroidDevice } from './devices'
-import { insetOf, readAndroidInsets, readSystemInsets } from './insets'
+import {
+  insetOf,
+  insetsOfUi,
+  readAndroidInsets,
+  readSystemInsets,
+} from './insets'
+import { readAndroidUi } from './ui'
 
 const ADB = 'adb -s emulator-5554'
 const SCALE = 2.625
@@ -343,6 +349,19 @@ describe('readAndroidInsets', () => {
     const reading = await readAndroidInsets(await target(), 'host.exp.exponent')
 
     expect(reading).toMatchObject({ source: 'probe', warnings: [] })
+  })
+})
+
+describe('insetsOfUi', () => {
+  it('takes the probe from a screen that loupe read, with no second dump', async () => {
+    const { calls, target } = probeApp(36, 'hole/rotation-1')
+    const device = await target()
+
+    const reading = await insetsOfUi(device, await readAndroidUi(device))
+
+    expect(reading).toMatchObject({ source: 'probe', warnings: [] })
+    expectClose(reading.safeArea, dp(63, 0, 63, 136))
+    expect(uiCalls(calls)).toBe(1)
   })
 })
 

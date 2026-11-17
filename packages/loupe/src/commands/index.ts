@@ -5,6 +5,7 @@ import { dragCommand } from './drag'
 import { holdCommand } from './hold'
 import { insetsCommand } from './insets'
 import { keyCommand } from './key'
+import { measureCommand } from './measure'
 import { openUrlCommand } from './open-url'
 import { pinchCommand } from './pinch'
 import { rotateCommand } from './rotate'
@@ -23,6 +24,7 @@ export const registry = createRegistry([
   holdCommand,
   insetsCommand,
   keyCommand,
+  measureCommand,
   openUrlCommand,
   pinchCommand,
   rotateCommand,

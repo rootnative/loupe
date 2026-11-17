@@ -17,7 +17,7 @@ import {
 import { type AndroidTarget } from './devices'
 import { dumpWindowDisplays, toDisplayState, windowDisplayOf } from './display'
 import { type InsetSource, parseWindowInsets } from './parse'
-import { readAndroidUi } from './ui'
+import { type AndroidUi, readAndroidUi } from './ui'
 
 /** The source types of the system bars, in the names of each API level. */
 const SYSTEM_BARS = new Set([
@@ -180,6 +180,25 @@ export async function readAndroidInsets(
 ): Promise<InsetsReading> {
   const warnings: string[] = []
   const found = await findProbe(target, app, warnings)
+  return combineInsets(target, found, warnings)
+}
+
+/**
+ * The insets of the screen that `ui` read, with no second dump: the probe
+ * comes from `ui`, the rest from `dumpsys`.
+ */
+export function insetsOfUi(
+  target: AndroidTarget,
+  ui: AndroidUi,
+): Promise<InsetsReading> {
+  return combineInsets(target, { display: ui.display, probe: ui.probe }, [])
+}
+
+async function combineInsets(
+  target: AndroidTarget,
+  found: FoundProbe | undefined,
+  warnings: string[],
+): Promise<InsetsReading> {
   const system = await readSystemInsets(target)
   if (found && found.display.orientation !== system.orientation) {
     throw new LoupeError(
