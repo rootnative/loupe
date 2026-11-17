@@ -1,4 +1,7 @@
-import { describe, expect, it } from 'vitest'
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import path from 'node:path'
+import { afterAll, describe, expect, it } from 'vitest'
 import { run } from '../cli/run'
 import { type CommandContext } from '../core/context'
 import { encodePng } from '../core/png'
@@ -245,6 +248,166 @@ describe('check', () => {
     expect(await runCommand(registry, 'check', input, context)).toMatchObject({
       ok: false,
       error: { code: 'invalid_input' },
+    })
+  })
+})
+
+describe('check --mirror-of', () => {
+  const folder = mkdtempSync(path.join(tmpdir(), 'loupe-check-'))
+  afterAll(() => rmSync(folder, { recursive: true, force: true }))
+
+  // These runs need no screenshot: only `centred` takes one.
+  const NO_SHOT: FakeRun = { code: 1, stderr: 'No screenshot in this test.' }
+
+  /** Saves `ui` of a screen as `loupe ui --json > file` does. */
+  async function saved(step: string, name: string, data = false) {
+    const { context } = pattern(36, step, name, NO_SHOT)
+    const result = await runCommand(registry, 'ui', {}, context)
+    const file = path.join(folder, `${step.replace('/', '-')}-${name}.json`)
+    writeFileSync(
+      file,
+      JSON.stringify(data && result.ok ? result.data : result),
+    )
+    return file
+  }
+
+  async function mirrored(step: string, name: string, mirrorOf: string) {
+    const { context } = pattern(36, step, name, NO_SHOT)
+    const data = await checked(context, { rules: 'mirrored', mirrorOf })
+    return data.results[0]
+  }
+
+  // Landscape-left, hole cutout on the left: the safe area is 51.81–914.29
+  // dp, so LTR's 63.62–199.62 dp mirrors to 766.48–902.48 dp.
+  it('finds a menu that RTL opens on the side where LTR opens it', async () => {
+    const ltr = await saved('ltr/rotation-1', 'mirrored-defect')
+
+    expect(await mirrored('rtl/rotation-1', 'mirrored-defect', ltr)).toEqual({
+      rule: 'mirrored',
+      passed: false,
+      checked: 5,
+      findings: ['Edit', 'Delete'].map((text) => ({
+        element: expect.objectContaining({ text }),
+        message: `"${text}" sits at 11.81–147.81 dp in RTL. LTR puts it at 63.62–199.62 dp, so mirrored it belongs at 766.48–902.48 dp.`,
+        details: {
+          from: expect.closeTo(11.81, 2),
+          to: expect.closeTo(147.81, 2),
+          expectedFrom: expect.closeTo(766.48, 2),
+          expectedTo: expect.closeTo(902.48, 2),
+          referenceFrom: expect.closeTo(63.62, 2),
+          referenceTo: expect.closeTo(199.62, 2),
+        },
+      })),
+    })
+  })
+
+  it('passes the fixed menu, and finds side padding on the wrong side', async () => {
+    const menu = await saved('ltr/rotation-1', 'mirrored-fixed')
+    const sides = await saved('ltr/rotation-1', 'sides-defect')
+
+    expect(
+      await mirrored('rtl/rotation-1', 'mirrored-fixed', menu),
+    ).toMatchObject({ passed: true, checked: 5 })
+    expect(
+      (await mirrored('rtl/rotation-1', 'sides-defect', sides))?.findings,
+    ).toMatchObject([{ element: { text: 'Lead' } }])
+  })
+
+  it('takes LTR as the reference from either side, and the data alone', async () => {
+    const rtl = await saved('rtl/rotation-1', 'mirrored-defect', true)
+
+    const result = await mirrored('ltr/rotation-1', 'mirrored-defect', rtl)
+
+    expect(result?.findings.map((finding) => finding.message)).toEqual([
+      '"Edit" sits at 11.81–147.81 dp in RTL. LTR puts it at 63.62–199.62 dp, so mirrored it belongs at 766.48–902.48 dp.',
+      '"Delete" sits at 11.81–147.81 dp in RTL. LTR puts it at 63.62–199.62 dp, so mirrored it belongs at 766.48–902.48 dp.',
+    ])
+  })
+
+  it('adds mirrored to the rules by default', async () => {
+    const ltr = await saved('ltr/rotation-1', 'mirrored-defect')
+    const { context } = pattern(36, 'rtl/rotation-1', 'mirrored-defect')
+
+    const data = await checked(context, { mirrorOf: ltr })
+
+    expect(data.results.map((result) => result.rule)).toEqual([
+      'inset',
+      'overflow',
+      'centred',
+      'touch-target',
+      'mirrored',
+    ])
+  })
+
+  it.each([
+    [
+      'the mirrored rule with no file',
+      async () => ({ rules: 'mirrored' }),
+      'The mirrored rule needs --mirror-of',
+    ],
+    [
+      'a file with no mirrored rule',
+      async () => ({
+        rules: 'inset',
+        mirrorOf: await saved('ltr/rotation-1', 'mirrored-defect'),
+      }),
+      'The mirror-of file needs the mirrored rule.',
+    ],
+    [
+      'a file that is not there',
+      async () => ({ mirrorOf: path.join(folder, 'none.json') }),
+      'There is no file',
+    ],
+    [
+      'a file that is not JSON',
+      async () => {
+        const file = path.join(folder, 'text.json')
+        writeFileSync(file, 'landscape')
+        return { mirrorOf: file }
+      },
+      "text.json isn't JSON.",
+    ],
+    [
+      'a file that is not the output of ui',
+      async () => {
+        const file = path.join(folder, 'other.json')
+        writeFileSync(file, JSON.stringify({ ok: true, data: { nodes: [] } }))
+        return { mirrorOf: file }
+      },
+      "other.json isn't the output of loupe ui.",
+    ],
+    [
+      'a screen in another orientation',
+      async () => ({
+        mirrorOf: await saved('ltr/rotation-0', 'centred-fixed'),
+      }),
+      'The saved screen is portrait',
+    ],
+    [
+      'another route',
+      async () => ({
+        mirrorOf: await saved('ltr/rotation-1', 'centred-fixed'),
+      }),
+      'The saved screen shows /centred/fixed, and this one shows /mirrored/defect.',
+    ],
+    [
+      'a screen in the same direction',
+      async () => ({
+        mirrorOf: await saved('rtl/rotation-1', 'mirrored-defect'),
+      }),
+      'Both screens are RTL.',
+    ],
+  ])('refuses %s', async (_name, input, message) => {
+    const { context } = pattern(36, 'rtl/rotation-1', 'mirrored-defect')
+
+    expect(
+      await runCommand(registry, 'check', await input(), context),
+    ).toMatchObject({
+      ok: false,
+      error: {
+        code: 'invalid_input',
+        message: expect.stringContaining(message),
+      },
     })
   })
 })

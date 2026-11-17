@@ -20,7 +20,13 @@ import {
   round2,
 } from './units'
 
-export const RULES = ['inset', 'overflow', 'centred', 'touch-target'] as const
+export const RULES = [
+  'inset',
+  'overflow',
+  'centred',
+  'touch-target',
+  'mirrored',
+] as const
 
 export type RuleName = (typeof RULES)[number]
 
@@ -62,12 +68,18 @@ export const ruleResultSchema = z.object({
 
 export type RuleResult = z.infer<typeof ruleResultSchema>
 
-/** One screen, as the rules see it. Sizes in dp. */
-export interface CheckedScreen {
+/** The tree of one screen, as `ui` gives it. Sizes in dp. */
+export interface ScreenTree {
   display: DisplayState
   /** The package of the window in the tree. */
   app?: string
   nodes: readonly UiNode[]
+  /** The layout direction, from the probe. */
+  direction?: 'ltr' | 'rtl'
+}
+
+/** One screen, as the rules see it. */
+export interface CheckedScreen extends ScreenTree {
   insets: InsetsReading
   /**
    * A screenshot of the same screen, in px. `centred` finds the ink of a
@@ -79,6 +91,8 @@ export interface CheckedScreen {
 export interface CheckOptions {
   /** Elements that must be at the centre of their container (`centred`). */
   centred?: readonly Selector[]
+  /** The same screen in the other layout direction (`mirrored`). */
+  mirrorOf?: ScreenTree
 }
 
 type Axis = 'x' | 'y'
@@ -103,7 +117,7 @@ function scrollAxisOf(node: UiNode): Axis {
  * "Tools" button) sits in a subtree under a class that isn't `android.*`;
  * the app's views are all `android.*`, so that subtree is left out.
  */
-function place(screen: CheckedScreen): Placed[] {
+function place(screen: ScreenTree): Placed[] {
   const skipOwn = screen.app === EXPO_GO
   const placed: Placed[] = []
   const walk = (
@@ -128,7 +142,7 @@ function toElement({ type, text, label, id, frame }: UiNode): Element {
 }
 
 /** True when the node has some area on the screen. */
-function onScreen(node: UiNode, screen: CheckedScreen): boolean {
+function onScreen(node: UiNode, screen: ScreenTree): boolean {
   const { width, height } = node.frame
   return (
     width > 0 &&
@@ -145,7 +159,7 @@ function matters(node: UiNode): boolean {
 }
 
 /** Half a pixel, in dp: less is rounding. */
-function tolerance(screen: CheckedScreen): number {
+function tolerance(screen: ScreenTree): number {
   return 0.5 / screen.display.scale
 }
 
@@ -167,7 +181,7 @@ function reachPast(frame: Rect, inner: Rect): Record<Edge, number> {
 }
 
 /** The edges of `area` that the frame touches, to half a pixel. */
-function edgesTouched(frame: Rect, area: Rect, screen: CheckedScreen): Edge[] {
+function edgesTouched(frame: Rect, area: Rect, screen: ScreenTree): Edge[] {
   const near = tolerance(screen)
   return EDGES.filter((edge) => {
     switch (edge) {
@@ -183,7 +197,7 @@ function edgesTouched(frame: Rect, area: Rect, screen: CheckedScreen): Edge[] {
   })
 }
 
-function screenRect(screen: CheckedScreen): Rect {
+function screenRect(screen: ScreenTree): Rect {
   return { x: 0, y: 0, ...screen.display.size }
 }
 
@@ -192,7 +206,7 @@ function screenRect(screen: CheckedScreen): Rect {
  * screen. On API 30 it is shorter than the screen along the long side
  * (round 5), and a node past it is cut there or has no size.
  */
-function treeArea(screen: CheckedScreen): Rect {
+function treeArea(screen: ScreenTree): Rect {
   const frames = screen.nodes
     .map((node) => intersection(node.frame, screenRect(screen)))
     .filter((frame): frame is Rect => frame !== null)
@@ -620,6 +634,192 @@ export function checkCentred(
   }
 }
 
+/** `mirrored` finds an edge more than this from its mirrored place, in dp. */
+export const MIRROR_TOLERANCE = 1
+
+const KEYS = ['id', 'label', 'text'] as const
+
+/**
+ * Pairs each element here with the same element there: by id, else by
+ * label, else by text; the value must be once on each screen.
+ */
+function pairs(
+  here: readonly UiNode[],
+  there: readonly UiNode[],
+): [UiNode, UiNode][] {
+  const counts = (nodes: readonly UiNode[], key: (typeof KEYS)[number]) => {
+    const count = new Map<string, UiNode[]>()
+    for (const node of nodes) {
+      const value = node[key]
+      if (value) count.set(value, [...(count.get(value) ?? []), node])
+    }
+    return count
+  }
+  const tables = KEYS.map((key) => ({
+    key,
+    here: counts(here, key),
+    there: counts(there, key),
+  }))
+  return here.flatMap((node): [UiNode, UiNode][] => {
+    for (const table of tables) {
+      const value = node[table.key]
+      if (!value) continue
+      const mine = table.here.get(value) ?? []
+      const theirs = table.there.get(value) ?? []
+      if (mine.length === 1 && theirs.length === 1 && theirs[0]) {
+        return [[node, theirs[0]]]
+      }
+    }
+    return []
+  })
+}
+
+/**
+ * The left and right edges of a frame, or null for an edge that touches
+ * the screen or the end of the tree: uiautomator clips a frame there, so
+ * that edge isn't known.
+ */
+function knownEdges(
+  frame: Rect,
+  screen: ScreenTree,
+): { left: number | null; right: number | null } {
+  const touched = new Set(
+    [screenRect(screen), treeArea(screen)].flatMap((area) =>
+      edgesTouched(frame, area, screen),
+    ),
+  )
+  return {
+    left: touched.has('left') ? null : frame.x,
+    right: touched.has('right') ? null : rectRight(frame),
+  }
+}
+
+function describeSpan(from: number, to: number): string {
+  return `${round2(from)}–${round2(to)} dp`
+}
+
+/** A place along x, with the edges that are known. */
+interface Span {
+  left: number
+  right: number
+  knownLeft: boolean
+  knownRight: boolean
+}
+
+/**
+ * `mirrored`: each element sits where the other layout direction puts it,
+ * mirrored about the centre of the safe area: the cutout stays on its side
+ * of the screen in both directions. An element that reaches into a side
+ * inset in either direction ignores the safe area, so it can mirror about
+ * the centre of the screen too (`inset` reports it). An element that the
+ * other direction centres on the screen can stay where it is. Elements
+ * pair up by id, label or text (once on each screen); an edge that touches
+ * the screen or the end of the tree isn't compared.
+ *
+ * The rule can't tell which direction is wrong, so LTR (from the probe) is
+ * the reference, and a finding is about the RTL screen; with no probe, the
+ * saved screen is the reference.
+ */
+export function checkMirrored(
+  screen: CheckedScreen,
+  { mirrorOf }: CheckOptions = {},
+): RuleResult {
+  if (!mirrorOf) {
+    throw new LoupeError(
+      'invalid_input',
+      'The mirrored rule needs the same screen in the other direction.',
+    )
+  }
+  const near = tolerance(screen)
+  const { width } = screen.display.size
+  const { safeArea } = screen.insets
+  const insideSafe = (frame: Rect) =>
+    frame.x >= safeArea.left - near &&
+    rectRight(frame) <= width - safeArea.right + near
+  const elements = (tree: ScreenTree) =>
+    place(tree)
+      .map(({ node }) => node)
+      .filter((node) => matters(node) && onScreen(node, tree))
+
+  const liveIsReference =
+    screen.direction === 'ltr' && mirrorOf.direction !== 'ltr'
+  const [subject, reference] = liveIsReference
+    ? [mirrorOf, screen]
+    : [screen, mirrorOf]
+  const labelOf = (tree: ScreenTree) =>
+    tree.direction?.toUpperCase() ??
+    (tree === screen ? 'this screen' : 'the saved screen')
+  const there = labelOf(reference).replace(/^t/, 'T')
+  const live = elements(screen)
+  const saved = elements(mirrorOf)
+
+  let checked = 0
+  const findings = (
+    liveIsReference ? pairs(saved, live) : pairs(live, saved)
+  ).flatMap(([node, other]): Finding[] => {
+    const from = other.frame.x
+    const to = rectRight(other.frame)
+    const otherEdges = knownEdges(other.frame, reference)
+    const mirror = (centre: number): Span => ({
+      left: 2 * centre - to,
+      right: 2 * centre - from,
+      knownLeft: otherEdges.right !== null,
+      knownRight: otherEdges.left !== null,
+    })
+    const expected = mirror((safeArea.left + width - safeArea.right) / 2)
+    const onCentre =
+      otherEdges.left !== null &&
+      otherEdges.right !== null &&
+      Math.abs((from + to) / 2 - width / 2) <= MIRROR_TOLERANCE
+    const candidates = [
+      expected,
+      ...(onCentre
+        ? [{ left: from, right: to, knownLeft: true, knownRight: true }]
+        : []),
+      ...(!insideSafe(node.frame) || !insideSafe(other.frame)
+        ? [mirror(width / 2)]
+        : []),
+    ]
+
+    const edges = knownEdges(node.frame, subject)
+    const offsets = (span: Span) => [
+      ...(span.knownLeft && edges.left !== null
+        ? [Math.abs(edges.left - span.left)]
+        : []),
+      ...(span.knownRight && edges.right !== null
+        ? [Math.abs(edges.right - span.right)]
+        : []),
+    ]
+    if (offsets(expected).length === 0) return []
+    checked += 1
+    const fits = candidates.some((span) =>
+      offsets(span).every((off) => off <= MIRROR_TOLERANCE),
+    )
+    if (fits) return []
+    return [
+      {
+        element: toElement(node),
+        message: `${name(node)} sits at ${describeSpan(node.frame.x, rectRight(node.frame))} in ${labelOf(subject)}. ${there} puts it at ${describeSpan(from, to)}, so mirrored it belongs at ${describeSpan(expected.left, expected.right)}.`,
+        details: {
+          from: node.frame.x,
+          to: rectRight(node.frame),
+          expectedFrom: expected.left,
+          expectedTo: expected.right,
+          referenceFrom: from,
+          referenceTo: to,
+        },
+      },
+    ]
+  })
+
+  return {
+    rule: 'mirrored',
+    passed: findings.length === 0,
+    checked,
+    findings,
+  }
+}
+
 export const RULE_CHECKS: Record<
   RuleName,
   (screen: CheckedScreen, options?: CheckOptions) => RuleResult
@@ -628,6 +828,7 @@ export const RULE_CHECKS: Record<
   overflow: checkOverflow,
   centred: checkCentred,
   'touch-target': checkTouchTarget,
+  mirrored: checkMirrored,
 }
 
 /** The rules of a comma list, such as "inset,overflow". */

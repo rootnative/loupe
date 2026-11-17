@@ -2,11 +2,13 @@ import { describe, expect, it } from 'vitest'
 import {
   checkCentred,
   checkInset,
+  checkMirrored,
   checkOverflow,
   type CheckedScreen,
   checkTouchTarget,
   describeResults,
   rulesOf,
+  type ScreenTree,
 } from './check'
 import { type Image } from './png'
 import { type UiNode } from './ui'
@@ -64,6 +66,7 @@ describe('rulesOf', () => {
       'overflow',
       'centred',
       'touch-target',
+      'mirrored',
     ])
     expect(rulesOf('touch-target, inset,inset')).toEqual([
       'touch-target',
@@ -491,6 +494,135 @@ describe('checkCentred', () => {
         ],
       })
     })
+  })
+})
+
+describe('checkMirrored', () => {
+  // The safe area is 50–900 dp: its centre is 475 dp.
+  const edit = (x: number, extra: Partial<UiNode> = {}) =>
+    node([x, 100, 140, 20], { text: 'Edit', ...extra })
+
+  function rtl(nodes: UiNode[]): CheckedScreen {
+    return { ...screen([root(nodes)]), direction: 'rtl' }
+  }
+
+  function ltr(nodes: UiNode[]): ScreenTree {
+    const { display, app } = screen([])
+    return { display, app, nodes: [root(nodes)], direction: 'ltr' }
+  }
+
+  it('passes an element mirrored about the centre of the safe area', () => {
+    expect(
+      checkMirrored(rtl([edit(750)]), { mirrorOf: ltr([edit(60)]) }),
+    ).toEqual({ rule: 'mirrored', passed: true, checked: 1, findings: [] })
+  })
+
+  it('finds an element that RTL leaves on the side where LTR puts it', () => {
+    const { findings } = checkMirrored(rtl([edit(10)]), {
+      mirrorOf: ltr([edit(60)]),
+    })
+
+    expect(findings).toEqual([
+      {
+        element: expect.objectContaining({ text: 'Edit' }),
+        message:
+          '"Edit" sits at 10–150 dp in RTL. LTR puts it at 60–200 dp, so mirrored it belongs at 750–890 dp.',
+        details: {
+          from: 10,
+          to: 150,
+          expectedFrom: 750,
+          expectedTo: 890,
+          referenceFrom: 60,
+          referenceTo: 200,
+        },
+      },
+    ])
+  })
+
+  it('takes LTR as the reference when this screen is the LTR one', () => {
+    const live: CheckedScreen = {
+      ...screen([root([edit(60)])]),
+      direction: 'ltr',
+    }
+    const saved = { ...ltr([edit(10)]), direction: 'rtl' as const }
+
+    expect(
+      checkMirrored(live, { mirrorOf: saved }).findings.map(
+        (finding) => finding.message,
+      ),
+    ).toEqual([
+      '"Edit" sits at 10–150 dp in RTL. LTR puts it at 60–200 dp, so mirrored it belongs at 750–890 dp.',
+    ])
+  })
+
+  it('takes the saved screen as the reference with no directions', () => {
+    const live = screen([root([edit(10)])])
+    const saved = { ...screen([]), nodes: [root([edit(60)])] }
+
+    expect(checkMirrored(live, { mirrorOf: saved }).findings[0]?.message).toBe(
+      '"Edit" sits at 10–150 dp in this screen. The saved screen puts it at 60–200 dp, so mirrored it belongs at 750–890 dp.',
+    )
+  })
+
+  it('lets an element that LTR centres on the screen stay where it is', () => {
+    const caption = node([400, 300, 100, 20], { text: 'Caption' })
+
+    expect(
+      checkMirrored(rtl([caption]), { mirrorOf: ltr([caption]) }),
+    ).toMatchObject({ passed: true, checked: 1 })
+  })
+
+  it('lets an element in a side inset mirror about the centre of the screen', () => {
+    // LTR puts it under the cutout, and RTL in the far corner: `inset`
+    // reports the LTR one.
+    const corner = (x: number) => node([x, 30, 60, 20], { text: 'Corner' })
+
+    expect(
+      checkMirrored(rtl([corner(840)]), { mirrorOf: ltr([corner(0)]) }),
+    ).toMatchObject({ passed: true, checked: 1 })
+  })
+
+  it('pairs by id, then label, then text, each once on each screen', () => {
+    const live = rtl([
+      node([10, 100, 140, 20], { id: 'first', text: 'Item' }),
+      node([10, 140, 140, 20], { text: 'Item' }),
+      node([10, 180, 140, 20], { label: 'Only here' }),
+    ])
+    const saved = ltr([
+      node([60, 100, 140, 20], { id: 'first', text: 'Item' }),
+      node([60, 140, 140, 20], { text: 'Item' }),
+    ])
+
+    const result = checkMirrored(live, { mirrorOf: saved })
+
+    expect(result.checked).toBe(1)
+    expect(result.findings.map((finding) => finding.element.id)).toEqual([
+      'first',
+    ])
+  })
+
+  it("doesn't compare an edge at the screen or at the end of the tree", () => {
+    const wide = (from: number, to: number) =>
+      node([from, 100, to - from, 20], { text: 'Wide' })
+    const mirrored = (here: UiNode, there: UiNode) =>
+      checkMirrored(rtl([here]), { mirrorOf: ltr([there]) })
+
+    expect(mirrored(wide(0, 900), wide(0, 900))).toMatchObject({
+      passed: true,
+      checked: 0,
+    })
+    // Only LTR's left edge is known, so only RTL's right edge counts.
+    expect(mirrored(wide(0, 850), wide(100, 900))).toMatchObject({
+      passed: true,
+      checked: 1,
+    })
+    expect(mirrored(wide(0, 700), wide(100, 900)).passed).toBe(false)
+  })
+
+  it('needs the other screen', () => {
+    expect(() => checkMirrored(rtl([edit(750)]))).toThrow(
+      expect.objectContaining({ code: 'invalid_input' }),
+    )
   })
 })
 
