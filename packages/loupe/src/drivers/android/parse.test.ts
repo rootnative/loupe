@@ -6,6 +6,7 @@ import {
   parseAvdList,
   parseEmuAvdName,
   parseGetprop,
+  parseRecentTasks,
   parseUiautomatorDump,
   parseWindowDisplays,
   parseWindowInsets,
@@ -440,5 +441,51 @@ describe('parseEmuAvdName', () => {
     expect(parseEmuAvdName('OK\r\n')).toBeUndefined()
     expect(parseEmuAvdName('KO: unknown command\r\n')).toBeUndefined()
     expect(parseEmuAvdName('')).toBeUndefined()
+  })
+})
+
+describe('parseRecentTasks', () => {
+  const recents = (file: string) => recordedText(`${file}.recents.txt`)
+
+  it('gives the tasks from the one in front, on API 36', () => {
+    expect(
+      parseRecentTasks(
+        recents('api-36/app-switch/expo-go/recents-twice/before'),
+      ),
+    ).toEqual([
+      { id: 9, type: 'standard', package: 'host.exp.exponent' },
+      { id: 11, type: 'standard', package: 'host.exp.exponent' },
+      { id: 12, type: 'standard', package: 'host.exp.exponent' },
+      {
+        id: 6,
+        type: 'home',
+        package: 'com.google.android.apps.nexuslauncher',
+      },
+      { id: 7, type: 'standard', package: 'com.android.settings' },
+    ])
+  })
+
+  it('reads the longer header of API 30, and the home screen first after HOME', () => {
+    const tasks = parseRecentTasks(
+      recents('api-30/app-switch/expo-go/recents-twice/home'),
+    )
+
+    expect(tasks.slice(0, 2)).toEqual([
+      {
+        id: 8,
+        type: 'home',
+        package: 'com.google.android.apps.nexuslauncher',
+      },
+      { id: 11, type: 'standard', package: 'host.exp.exponent' },
+    ])
+    expect(tasks.at(-1)).toEqual({
+      id: 4,
+      type: 'home',
+      package: 'com.android.settings',
+    })
+  })
+
+  it('gives no task for text with none', () => {
+    expect(parseRecentTasks('ACTIVITY MANAGER RECENT TASKS\n')).toEqual([])
   })
 })

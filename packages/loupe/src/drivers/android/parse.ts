@@ -284,3 +284,36 @@ export function parseEmuAvdName(text: string): string | undefined {
   const [first = ''] = lines(text)
   return first !== 'OK' && AVD_NAME.test(first) ? first : undefined
 }
+
+/** One task of `dumpsys activity recents`. */
+export interface RecentTask {
+  /** The task id: the `#` number of `Task{…}`. */
+  id: number
+  /** `standard` for an app, `home` for a launcher. */
+  type?: string
+  /** The package of the component of the task's base intent. */
+  package?: string
+}
+
+/**
+ * Reads `dumpsys activity recents`: the tasks from the most recent, which
+ * is the one in front. Each one starts with `* Recent #N: Task{<hash> #<id>
+ * … type=<type> …}`, and its `intent={… cmp=<package>/<activity> …}` line
+ * follows. Where `type=` stands in the header changes between versions.
+ */
+export function parseRecentTasks(text: string): RecentTask[] {
+  return text
+    .split(/\n(?=\s*\* Recent #\d+:)/)
+    .flatMap((block): RecentTask[] => {
+      const header = /^\s*\* Recent #\d+: Task\{\S+ #(\d+)([^}\n]*)/.exec(block)
+      if (!header) return []
+      const intent = /^\s*intent=\{(.*)\}\s*$/m.exec(block)?.[1]
+      return [
+        {
+          id: Number(header[1]),
+          type: /\btype=(\w+)/.exec(header[2] ?? '')?.[1],
+          package: /\bcmp=([^/\s]+)\//.exec(intent ?? '')?.[1],
+        },
+      ]
+    })
+}

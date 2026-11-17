@@ -278,6 +278,40 @@ async function checkProbeApp(metro) {
     'insets: the two landscapes mirror each other, and their sides differ',
   )
   loupe('rotate', 'portrait')
+  await checkAppState()
+}
+
+/** What the probe app shows on /appstate: its run, AppStates and links. */
+function appState() {
+  const nodes = loupe('ui', '--app', EXPO_GO).data?.nodes ?? []
+  const text = (id) => findNode(nodes, (node) => node.id === id)?.text
+  return { run: text('run'), states: text('app-states'), links: text('links') }
+}
+
+/**
+ * Expo Go runs each app in a task of its own. `background --for` must bring
+ * that task back with the same run of the app: one more `background
+ * active`, and no new link.
+ */
+async function checkAppState() {
+  loupe('open-url', `exp://127.0.0.1:${PORT}/--/appstate`, '--app', EXPO_GO)
+  loupe('wait', '--id', 'run', '--app', EXPO_GO)
+  const before = appState()
+  const away = loupe('background', '--for', '1500', '--app', EXPO_GO)
+  let after = appState()
+  for (let read = 0; read < 10 && after.states === before.states; read += 1) {
+    await sleep(500)
+    after = appState()
+  }
+  check(
+    away.data?.back?.way === 'recents' &&
+      before.run !== undefined &&
+      after.run === before.run &&
+      after.links === before.links &&
+      after.states === `${before.states} background active`,
+    `background --for 1500: the probe app is back in the same run (${away.data?.back?.way ?? away.error?.code}; ${before.run}, ${before.states} → ${after.run}, ${after.states}; ${after.links})`,
+  )
+  if (!away.ok) keepScreen('background-expo-go.png')
 }
 
 adb('wait-for-device')
@@ -406,6 +440,23 @@ check(
   web.ok && typeof web.data.activity === 'string',
   'open-url: a web link opens',
 )
+
+// The browser is in front, so Settings isn't the most recent task: the way
+// back is a task lock. From the home screen, it's the Recents key.
+const fore = loupe('foreground', SETTINGS)
+const foreFocus = await waitForFocus(SETTINGS)
+check(
+  fore.data?.way === 'task-lock' && foreFocus.seen.includes(SETTINGS),
+  `foreground: Settings is in front again (${fore.data?.way ?? fore.error?.code}, ${fore.data?.ms} ms)`,
+)
+if (!fore.ok) keepScreen('foreground.png')
+
+const away = loupe('background', '--for', '1500', '--app', SETTINGS)
+check(
+  away.data?.back?.way === 'recents' && focus().includes(SETTINGS),
+  `background --for 1500: Settings is back (${away.data?.back?.way ?? away.error?.code}, away ${away.data?.away} ms)`,
+)
+if (!away.ok) keepScreen('background.png')
 
 // The gestures, on the empty middle of the home screen. On an emulator they
 // go through its console.

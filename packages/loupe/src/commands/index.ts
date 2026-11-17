@@ -1,8 +1,10 @@
 import { createRegistry } from '../core/command'
+import { backgroundCommand } from './background'
 import { checkCommand } from './check'
 import { devicesCommand } from './devices'
 import { doubleTapCommand } from './double-tap'
 import { dragCommand } from './drag'
+import { foregroundCommand } from './foreground'
 import { holdCommand } from './hold'
 import { insetsCommand } from './insets'
 import { keyCommand } from './key'
@@ -21,10 +23,12 @@ import { waitCommand } from './wait'
 
 /** Every loupe command. The CLI is made from this list. */
 export const registry = createRegistry([
+  backgroundCommand,
   checkCommand,
   devicesCommand,
   doubleTapCommand,
   dragCommand,
+  foregroundCommand,
   holdCommand,
   insetsCommand,
   keyCommand,
