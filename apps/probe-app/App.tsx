@@ -1,6 +1,13 @@
 import { LoupeProbe } from '@rootnative/loupe-probe'
 import { useEffect, useState } from 'react'
-import { Linking, StyleSheet, Text, useColorScheme, View } from 'react-native'
+import {
+  AppState,
+  Linking,
+  StyleSheet,
+  Text,
+  useColorScheme,
+  View,
+} from 'react-native'
 import {
   SafeAreaProvider,
   useSafeAreaInsets,
@@ -16,27 +23,75 @@ function routeOf(url: string | null | undefined): string {
   return `/${path.replace(/^\/+|\/+$/g, '')}`
 }
 
-/** The route of the link that opened the app, and of each link after it. */
-function useRoute(): string {
+/**
+ * The route of the link that opened the app, and of each link after it, and
+ * the count of those later links.
+ */
+function useRoute(): { route: string; links: number } {
   const [route, setRoute] = useState('/')
+  const [links, setLinks] = useState(0)
   useEffect(() => {
     void Linking.getInitialURL().then((url) => setRoute(routeOf(url)))
-    const subscription = Linking.addEventListener('url', ({ url }) =>
-      setRoute(routeOf(url)),
+    const subscription = Linking.addEventListener('url', ({ url }) => {
+      setRoute(routeOf(url))
+      setLinks((count) => count + 1)
+    })
+    return () => subscription.remove()
+  }, [])
+  return { route, links }
+}
+
+/** Each AppState of this run of the bundle, from the first one. */
+function useAppStates(): string[] {
+  const [states, setStates] = useState<string[]>([
+    AppState.currentState ?? 'unknown',
+  ])
+  useEffect(() => {
+    const subscription = AppState.addEventListener('change', (state) =>
+      setStates((all) => [...all, state]),
     )
     return () => subscription.remove()
   }, [])
-  return route
+  return states
 }
 
+// A new id for each run of the bundle: a reload gives another one.
+const RUN = Math.random().toString(36).slice(2, 8)
+
 export default function App() {
-  const route = useRoute()
+  const { route, links } = useRoute()
+  const states = useAppStates()
   const pattern = patternOf(route)
+  let screen = <Screen />
+  if (pattern) screen = <PatternScreen {...pattern} />
+  if (route === '/appstate') {
+    screen = <AppStateScreen states={states} links={links} />
+  }
   return (
     <SafeAreaProvider>
-      {pattern ? <PatternScreen {...pattern} /> : <Screen />}
+      {screen}
       <LoupeProbe route={route} />
     </SafeAreaProvider>
+  )
+}
+
+// What the app saw while it went to the background and came back: the run
+// (the same one, or a reload), each AppState, and the links after the first.
+function AppStateScreen({
+  states,
+  links,
+}: {
+  states: readonly string[]
+  links: number
+}) {
+  return (
+    <View style={styles.appState}>
+      <Text testID="run" style={styles.text}>{`run ${RUN}`}</Text>
+      <Text testID="app-states" style={styles.text}>
+        {states.join(' ')}
+      </Text>
+      <Text testID="links" style={styles.text}>{`links ${links}`}</Text>
+    </View>
   )
 }
 
@@ -78,6 +133,13 @@ const styles = StyleSheet.create({
     backgroundColor: '#ffffff',
   },
   panelDark: { backgroundColor: '#1d1d1f' },
+  appState: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    backgroundColor: '#ffffff',
+  },
   text: { fontSize: 16, color: '#1d1d1f' },
   textDark: { color: '#ffffff' },
 })
