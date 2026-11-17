@@ -1,6 +1,6 @@
 import { z } from 'zod'
 import { defineCommand } from '../core/command'
-import { deviceField } from '../core/device'
+import { appField, deviceField } from '../core/device'
 import { describeDisplay } from '../core/display'
 import { describeInsets, insetsReadingSchema } from '../core/insets'
 import { selectAndroidDevice } from '../drivers/android/devices'
@@ -10,14 +10,19 @@ export const insetsCommand = defineCommand({
   name: 'insets',
   summary:
     'Read the safe-area insets and the cutout of the current orientation',
-  input: z.object({ device: deviceField }),
+  input: z.object({
+    app: appField.describe(
+      "The package of the app under test, for example host.exp.exponent for Expo Go. loupe then reads the app's probe only while that app is in front. On a real device, loupe reads the probe only with this option.",
+    ),
+    device: deviceField,
+  }),
   output: insetsReadingSchema,
-  run: async ({ device }, context) =>
-    readAndroidInsets(await selectAndroidDevice(context, device)),
+  run: async ({ app, device }, context) =>
+    readAndroidInsets(await selectAndroidDevice(context, device), app),
   format: (reading) =>
     [
       describeDisplay(reading),
-      `Safe area: ${describeInsets(reading.safeArea)}`,
+      `Safe area, from ${reading.source === 'probe' ? "the app's probe" : 'dumpsys'}: ${describeInsets(reading.safeArea)}`,
       `System bars: ${describeInsets(reading.systemBars)}`,
       `Cutout: ${describeInsets(reading.cutout)}`,
       ...reading.warnings.map((warning) => `Warning: ${warning}`),

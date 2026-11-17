@@ -1,5 +1,6 @@
 import { type DisplayState } from '../../core/display'
 import { LoupeError } from '../../core/errors'
+import { isProbeLabel, type ProbeReading, readProbe } from '../../core/probe'
 import { type UiNode } from '../../core/ui'
 import { type Rect, rectFromPixels } from '../../core/units'
 import { type AndroidTarget } from './devices'
@@ -16,7 +17,10 @@ export interface AndroidUi {
   display: DisplayState
   /** The package of the window in the tree. */
   app?: string
+  /** With no probe node: the probe is loupe's, not part of the app. */
   nodes: UiNode[]
+  /** Left out when the screen has no probe. */
+  probe?: ProbeReading
 }
 
 function frameOf(element: XmlElement, scale: number): Rect {
@@ -34,13 +38,37 @@ function frameOf(element: XmlElement, scale: number): Rect {
   )
 }
 
-function toNode(element: XmlElement, scale: number): UiNode {
+/**
+ * The `node` elements as `UiNode`s, with no probe node. The label of each
+ * probe node goes into `probeLabels`, in tree order.
+ */
+function toNodes(
+  elements: readonly XmlElement[],
+  scale: number,
+  probeLabels: string[],
+): UiNode[] {
+  const nodes: UiNode[] = []
+  for (const element of elements) {
+    if (element.name !== 'node') continue
+    const label = element.attributes['content-desc']
+    if (isProbeLabel(label)) {
+      probeLabels.push(label)
+    } else {
+      nodes.push(toNode(element, scale, probeLabels))
+    }
+  }
+  return nodes
+}
+
+function toNode(
+  element: XmlElement,
+  scale: number,
+  probeLabels: string[],
+): UiNode {
   const attributes = element.attributes
   const state = (name: string): true | undefined =>
     attributes[name] === 'true' ? true : undefined
-  const children = element.children
-    .filter((child) => child.name === 'node')
-    .map((child) => toNode(child, scale))
+  const children = toNodes(element.children, scale, probeLabels)
 
   return {
     type: attributes.class ?? '',
@@ -96,7 +124,8 @@ function readDump(target: AndroidTarget, output: string): UiautomatorDump {
 /**
  * Reads the tree of the window in front with `uiautomator dump`, only while
  * `app` is in front (see `whileInFront`). uiautomator waits until the screen
- * keeps still, so an animation that never stops gives `not_idle`.
+ * keeps still, so an animation that never stops gives `not_idle`. The
+ * probe's node isn't in the tree; its report is in `probe`.
  */
 export async function readAndroidUi(
   target: AndroidTarget,
@@ -115,9 +144,12 @@ export async function readAndroidUi(
   }
 
   const state = toDisplayState(display)
+  const probeLabels: string[] = []
+  const nodes = toNodes(dump.nodes, state.scale, probeLabels)
   return {
     display: state,
     app: dump.nodes[0]?.attributes.package || undefined,
-    nodes: dump.nodes.map((node) => toNode(node, state.scale)),
+    nodes,
+    probe: readProbe(probeLabels),
   }
 }

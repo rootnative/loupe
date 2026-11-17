@@ -12,10 +12,12 @@ export const insetsSchema = z.object({
 
 export const insetsReadingSchema = displaySchema.extend({
   source: z
-    .enum(['dumpsys'])
-    .describe('Where the numbers come from: the system, not the app.'),
+    .enum(['probe', 'dumpsys'])
+    .describe(
+      'Where the safe area comes from: "probe" is the app\'s own numbers, from the <LoupeProbe /> on the screen; "dumpsys" is the system\'s. The system bars and the cutout always come from the system.',
+    ),
   safeArea: insetsSchema.describe(
-    'The system bars and the cutout together, per edge, in dp: what a safe-area view gets.',
+    "Per edge, in dp: what a safe-area view gets. From the app's probe, or else the system bars and the cutout together.",
   ),
   systemBars: insetsSchema.describe(
     'The status bar and the navigation bar, per edge, in dp.',
@@ -30,6 +32,19 @@ export const insetsReadingSchema = displaySchema.extend({
 export type InsetsReading = z.infer<typeof insetsReadingSchema>
 
 export const NO_INSETS: Insets = { top: 0, right: 0, bottom: 0, left: 0 }
+
+export const EDGES = ['top', 'right', 'bottom', 'left'] as const
+
+export type Edge = (typeof EDGES)[number]
+
+/** The edges where `a` and `b` are more than `tolerance` apart. */
+export function differingEdges(
+  a: Insets,
+  b: Insets,
+  tolerance: number,
+): Edge[] {
+  return EDGES.filter((edge) => Math.abs(a[edge] - b[edge]) > tolerance)
+}
 
 /** The larger value of each edge. */
 export function maxInsets(list: readonly Insets[]): Insets {

@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { type UiNode } from '../../core/ui'
 import { byCommand, type FakeRun, fakeContext } from '../../testing/fake-exec'
-import { API_LEVELS, recorded } from '../../testing/fixtures'
+import { API_LEVELS, recorded, recordedText } from '../../testing/fixtures'
 import { selectAndroidDevice } from './devices'
 import { readAndroidUi } from './ui'
 
@@ -154,5 +154,101 @@ describe('readAndroidUi', () => {
       readAndroidUi(await target(), 'com.example.app'),
     ).rejects.toMatchObject({ code: 'app_not_in_front' })
     expect(calls.some((call) => call.args.includes('uiautomator'))).toBe(false)
+  })
+})
+
+/** The probe app in Expo Go, from the probe recorder (round 5). */
+function probeApp(level: number, step: string, dump?: FakeRun) {
+  return emulator(
+    level,
+    `probe/${step}/dumpsys-window-displays.txt`,
+    dump ?? recorded(`api-${level}/probe/${step}/last.ui-tty.txt`),
+  )
+}
+
+/**
+ * The safe area in px in landscape-left with the hole cutout on the left.
+ * API 30 has the 3-button navigation bar on the right; the later images
+ * have the gesture bar at the bottom.
+ */
+function holeOnTheLeft(level: number): [number, number, number, number] {
+  return level === 30 ? [74, 126, 0, 136] : [63, 0, 63, 136]
+}
+
+describe.each(API_LEVELS)(
+  'readAndroidUi of the probe app, on API %i',
+  (level) => {
+    it("leaves the probe's node out, and gives its report", async () => {
+      const { target } = probeApp(level, 'hole/rotation-1')
+      const dump = recordedText(
+        `api-${level}/probe/hole/rotation-1/last.ui-tty.txt`,
+      )
+
+      const ui = await readAndroidUi(await target())
+      const all = everyNode(ui.nodes)
+
+      expect(ui.app).toBe('host.exp.exponent')
+      expect(dump.match(/<node /g)).toHaveLength(all.length + 1)
+      expect(all.some((node) => node.label?.startsWith('loupe:'))).toBe(false)
+      expect(all.some((node) => node.label === 'safe area')).toBe(true)
+      expect(ui.probe).toEqual({
+        report: {
+          insets: expect.any(Object),
+          window: expect.any(Object),
+          scale: SCALE,
+          direction: 'ltr',
+          colorScheme: 'light',
+          route: '/',
+        },
+        warnings: [],
+      })
+      const insets = ui.probe?.report?.insets
+      const [top, right, bottom, left] = holeOnTheLeft(level)
+      expect(insets?.top).toBeCloseTo(top / SCALE, 5)
+      expect(insets?.right).toBeCloseTo(right / SCALE, 5)
+      expect(insets?.bottom).toBeCloseTo(bottom / SCALE, 5)
+      expect(insets?.left).toBeCloseTo(left / SCALE, 5)
+    })
+  },
+)
+
+describe('readAndroidUi and the probe', () => {
+  it('gives no probe for a screen with none', async () => {
+    const { target } = settings(36)
+
+    expect((await readAndroidUi(await target())).probe).toBeUndefined()
+  })
+
+  // A compressed dump leaves out the views that aren't important for
+  // accessibility, and the probe is one.
+  it('gives no probe for the probe app in a compressed dump', async () => {
+    const { target } = probeApp(
+      36,
+      'none/rotation-0',
+      recorded('api-36/probe/extra/ui-compressed.txt'),
+    )
+
+    const ui = await readAndroidUi(await target())
+
+    expect(ui.probe).toBeUndefined()
+    expect(everyNode(ui.nodes).some((node) => node.label === 'safe area')).toBe(
+      true,
+    )
+  })
+
+  it('leaves out a probe node that it cannot read, with a warning', async () => {
+    const dump = recordedText('api-36/probe/hole/rotation-3/last.ui-tty.txt')
+    const { target } = probeApp(36, 'hole/rotation-3', {
+      stdout: dump.replace('"v":1', '"v":2'),
+    })
+
+    const ui = await readAndroidUi(await target())
+
+    expect(ui.probe).toEqual({
+      warnings: [expect.stringContaining('format 2')],
+    })
+    expect(
+      everyNode(ui.nodes).some((node) => node.label?.startsWith('loupe:')),
+    ).toBe(false)
   })
 })

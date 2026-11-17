@@ -56,6 +56,43 @@ describe('ui', () => {
     )
   })
 
+  it("gives the probe's report, and leaves its node out", async () => {
+    const path = 'api-36/probe/hole/rotation-3'
+    const { context } = fakeContext(
+      byCommand({
+        'adb devices -l': recorded('api-36/host/adb-devices-l.txt'),
+        [`${ADB} shell getprop`]: recorded('api-36/device/getprop.txt'),
+        [`${ADB} shell dumpsys window displays`]: recorded(
+          `${path}/dumpsys-window-displays.txt`,
+        ),
+        [`${ADB} exec-out uiautomator dump /dev/tty`]: recorded(
+          `${path}/last.ui-tty.txt`,
+        ),
+      }),
+    )
+    const out: string[] = []
+    const io = {
+      out: (text: string) => out.push(text),
+      err: () => {},
+      isTTY: true,
+    }
+
+    const result = await runCommand(registry, 'ui', {}, context)
+    expect(result).toMatchObject({
+      ok: true,
+      data: {
+        app: 'host.exp.exponent',
+        probe: { route: '/', direction: 'ltr', colorScheme: 'light' },
+      },
+    })
+    expect(JSON.stringify(result)).not.toContain('loupe:')
+
+    expect(await run(['ui'], io, registry, context)).toBe(0)
+    expect(out.join('\n').split('\n')[1]).toBe(
+      'Probe: route "/", ltr, light, window 862.48 × 363.43 dp, safe area top 24, right 51.81, bottom 24, left 0 dp',
+    )
+  })
+
   it('takes --app, and reads nothing while another app is in front', async () => {
     const { context, calls } = emulator36()
     const io = { out: () => {}, err: () => {}, isTTY: false }
