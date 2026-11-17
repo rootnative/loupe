@@ -15,6 +15,7 @@ import { tapCommand } from './tap'
 import { typeCommand } from './type'
 import { uiCommand } from './ui'
 import { versionCommand } from './version'
+import { waitCommand } from './wait'
 
 /** Every loupe command. The CLI is made from this list. */
 export const registry = createRegistry([
@@ -34,4 +35,5 @@ export const registry = createRegistry([
   typeCommand,
   uiCommand,
   versionCommand,
+  waitCommand,
 ])

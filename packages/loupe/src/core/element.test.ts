@@ -1,5 +1,10 @@
 import { describe, expect, it } from 'vitest'
-import { describeElement, findElement, targetOf } from './element'
+import {
+  describeElement,
+  elementsOnScreen,
+  findElement,
+  targetOf,
+} from './element'
 import { type UiNode } from './ui'
 
 const SCREEN = { width: 400, height: 800 }
@@ -139,6 +144,19 @@ describe('findElement', () => {
         'Measure one by another selector.',
       ),
     ).toThrow(/× 40\. Measure one by another selector\.$/)
+  })
+
+  it('lists each match on the screen with elementsOnScreen, with no error', () => {
+    const texts = (selector: Parameters<typeof elementsOnScreen>[1]) =>
+      elementsOnScreen(tree, selector, SCREEN).map((element) => element.text)
+
+    expect(texts({ by: 'id', value: 'title' })).toEqual([
+      'Network & internet',
+      'Connected devices',
+    ])
+    expect(texts({ by: 'text', value: 'Half' })).toEqual(['Half'])
+    expect(texts({ by: 'text', value: 'Below' })).toEqual([])
+    expect(texts({ by: 'text', value: 'Nothing' })).toEqual([])
   })
 
   it.each([

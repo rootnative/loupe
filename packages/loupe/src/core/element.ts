@@ -139,6 +139,44 @@ export interface FoundElement {
  * the centre of the part that is on the screen. Exactly one element must be
  * on the screen; else `element_ambiguous` ends with `whenAmbiguous`.
  */
+interface OnScreen {
+  node: UiNode
+  /** The part of the node on the screen. */
+  part: Rect
+}
+
+function onScreen(
+  nodes: readonly UiNode[],
+  selector: Selector,
+  screen: Size,
+): OnScreen[] {
+  const screenRect = { x: 0, y: 0, ...screen }
+  return nodes.flatMap((node) => {
+    const part = matches(node, selector)
+      ? intersection(node.frame, screenRect)
+      : null
+    return part ? [{ node, part }] : []
+  })
+}
+
+function toElement({ type, text, label, id, frame }: UiNode): Element {
+  return { type, text, label, id, frame }
+}
+
+/**
+ * Each element that the selector names and that is at least partly on the
+ * screen, in tree order.
+ */
+export function elementsOnScreen(
+  nodes: readonly UiNode[],
+  selector: Selector,
+  screen: Size,
+): Element[] {
+  return onScreen(everyNode(nodes), selector, screen).map(({ node }) =>
+    toElement(node),
+  )
+}
+
 export function findElement(
   nodes: readonly UiNode[],
   selector: Selector,
@@ -146,14 +184,11 @@ export function findElement(
   whenAmbiguous = 'Touch one by its point, or by another selector.',
 ): FoundElement {
   const all = everyNode(nodes)
-  const found = all.filter((node) => matches(node, selector))
-  if (found.length === 0) throw notFound(all, selector)
+  if (!all.some((node) => matches(node, selector))) {
+    throw notFound(all, selector)
+  }
 
-  const screenRect = { x: 0, y: 0, ...screen }
-  const visible = found.flatMap((node) => {
-    const part = intersection(node.frame, screenRect)
-    return part ? [{ node, part }] : []
-  })
+  const visible = onScreen(all, selector, screen)
   const [first] = visible
 
   if (!first) {
@@ -172,11 +207,7 @@ export function findElement(
     )
   }
 
-  const { type, text, label, id, frame } = first.node
-  return {
-    element: { type, text, label, id, frame },
-    point: rectCentre(first.part),
-  }
+  return { element: toElement(first.node), point: rectCentre(first.part) }
 }
 
 /** A short name for an element in a summary line. */

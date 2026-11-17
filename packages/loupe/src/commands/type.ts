@@ -1,8 +1,10 @@
 import { z } from 'zod'
 import { defineCommand } from '../core/command'
 import { appField, deviceField } from '../core/device'
+import { waitedSchema, waitFields, withWaited } from '../core/wait'
 import { selectAndroidDevice } from '../drivers/android/devices'
 import { typeAndroid } from '../drivers/android/keys'
+import { waitAfterAction } from '../drivers/android/wait'
 
 export const typeCommand = defineCommand({
   name: 'type',
@@ -14,14 +16,25 @@ export const typeCommand = defineCommand({
       .describe(
         'The text to type. On Android, printable ASCII only; press Enter with the key command.',
       ),
+    ...waitFields,
     app: appField,
     device: deviceField,
   }),
   positionals: ['text'],
   // The output has no text: it can be a password.
-  output: z.object({ characters: z.number().int() }),
-  run: async ({ text, app, device }, context) =>
-    typeAndroid(await selectAndroidDevice(context, device), text, app),
-  format: ({ characters }) =>
-    `Typed ${characters} ${characters === 1 ? 'character' : 'characters'}`,
+  output: z.object({
+    characters: z.number().int(),
+    waited: waitedSchema.optional(),
+  }),
+  run: async ({ text, app, device, ...wait }, context) => {
+    const target = await selectAndroidDevice(context, device)
+    const typed = await typeAndroid(target, text, app)
+    const waited = await waitAfterAction(target, app, wait, 'type')
+    return { ...typed, waited }
+  },
+  format: ({ characters, waited }) =>
+    withWaited(
+      `Typed ${characters} ${characters === 1 ? 'character' : 'characters'}`,
+      waited,
+    ),
 })

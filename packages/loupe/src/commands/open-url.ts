@@ -1,8 +1,10 @@
 import { z } from 'zod'
 import { defineCommand } from '../core/command'
 import { appField, deviceField } from '../core/device'
+import { waitedSchema, waitFields, withWaited } from '../core/wait'
 import { selectAndroidDevice } from '../drivers/android/devices'
 import { openUrlAndroid } from '../drivers/android/open-url'
+import { waitAfterAction } from '../drivers/android/wait'
 
 export const openUrlCommand = defineCommand({
   name: 'open-url',
@@ -17,6 +19,7 @@ export const openUrlCommand = defineCommand({
     app: appField.describe(
       'The package of the app under test. Then only that app opens the link. A real device needs it.',
     ),
+    ...waitFields,
     device: deviceField,
   }),
   positionals: ['url'],
@@ -31,15 +34,23 @@ export const openUrlCommand = defineCommand({
       .number()
       .optional()
       .describe('Milliseconds, as Android measured the start.'),
+    waited: waitedSchema.optional(),
   }),
-  run: async ({ url, app, device }, context) =>
-    openUrlAndroid(await selectAndroidDevice(context, device), url, app),
-  format: ({ url, activity, launchState, totalTime }) =>
-    [
-      `Opened ${url}`,
-      ...(activity ? [`in ${activity}`] : []),
-      ...(launchState && totalTime !== undefined
-        ? [`(${launchState}, ${totalTime} ms)`]
-        : []),
-    ].join(' '),
+  run: async ({ url, app, device, ...wait }, context) => {
+    const target = await selectAndroidDevice(context, device)
+    const opened = await openUrlAndroid(target, url, app)
+    const waited = await waitAfterAction(target, app, wait, 'open-url')
+    return { ...opened, waited }
+  },
+  format: ({ url, activity, launchState, totalTime, waited }) =>
+    withWaited(
+      [
+        `Opened ${url}`,
+        ...(activity ? [`in ${activity}`] : []),
+        ...(launchState && totalTime !== undefined
+          ? [`(${launchState}, ${totalTime} ms)`]
+          : []),
+      ].join(' '),
+      waited,
+    ),
 })

@@ -8,9 +8,11 @@ import {
   describeTouched,
   durationField,
 } from '../core/touch'
+import { waitedSchema, waitFields, withWaited } from '../core/wait'
 import { selectAndroidDevice } from '../drivers/android/devices'
 import { aimAndroid } from '../drivers/android/element'
 import { holdAndroid } from '../drivers/android/touch'
+import { waitAfterAction } from '../drivers/android/wait'
 
 export const holdCommand = defineCommand({
   name: 'hold',
@@ -21,19 +23,30 @@ export const holdCommand = defineCommand({
     y: coordinateField('y').optional(),
     ...selectorFields,
     duration: durationField(1000, 'to hold the touch'),
+    ...waitFields,
     app: appField,
     device: deviceField,
   }),
   positionals: ['x', 'y'],
-  output: aimedTouchSchema,
-  run: async ({ duration, app, device, ...input }, context) => {
+  output: aimedTouchSchema.extend({ waited: waitedSchema.optional() }),
+  run: async (
+    { duration, app, device, waitStill, waitText, waitTimeout, ...input },
+    context,
+  ) => {
     const target = await selectAndroidDevice(context, device)
     const { point, element } = await aimAndroid(target, targetOf(input), app)
-    return {
-      ...(await holdAndroid(target, point, duration, app)),
-      element,
-    }
+    const touch = await holdAndroid(target, point, duration, app)
+    const waited = await waitAfterAction(
+      target,
+      app,
+      { waitStill, waitText, waitTimeout },
+      'hold',
+    )
+    return { ...touch, element, waited }
   },
   format: (touch) =>
-    `Held ${describeTouched(touch)} dp for ${touch.duration} ms`,
+    withWaited(
+      `Held ${describeTouched(touch)} dp for ${touch.duration} ms`,
+      touch.waited,
+    ),
 })

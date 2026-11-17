@@ -7,9 +7,11 @@ import {
   coordinateField,
   describeTouched,
 } from '../core/touch'
+import { waitedSchema, waitFields, withWaited } from '../core/wait'
 import { selectAndroidDevice } from '../drivers/android/devices'
 import { aimAndroid } from '../drivers/android/element'
 import { doubleTapAndroid } from '../drivers/android/gesture'
+import { waitAfterAction } from '../drivers/android/wait'
 
 export const doubleTapCommand = defineCommand({
   name: 'double-tap',
@@ -19,6 +21,7 @@ export const doubleTapCommand = defineCommand({
     x: coordinateField('x').optional(),
     y: coordinateField('y').optional(),
     ...selectorFields,
+    ...waitFields,
     app: appField,
     device: deviceField,
   }),
@@ -29,12 +32,26 @@ export const doubleTapCommand = defineCommand({
       .describe(
         'Milliseconds between the two taps: on an emulator, measured on the host through the emulator console; on a real device, measured on the device.',
       ),
+    waited: waitedSchema.optional(),
   }),
-  run: async ({ app, device, ...input }, context) => {
+  run: async (
+    { app, device, waitStill, waitText, waitTimeout, ...input },
+    context,
+  ) => {
     const target = await selectAndroidDevice(context, device)
     const { point, element } = await aimAndroid(target, targetOf(input), app)
-    return { ...(await doubleTapAndroid(target, point, app)), element }
+    const touch = await doubleTapAndroid(target, point, app)
+    const waited = await waitAfterAction(
+      target,
+      app,
+      { waitStill, waitText, waitTimeout },
+      'double-tap',
+    )
+    return { ...touch, element, waited }
   },
   format: (touch) =>
-    `Double-tapped ${describeTouched(touch)} dp, ${touch.gap} ms between the taps`,
+    withWaited(
+      `Double-tapped ${describeTouched(touch)} dp, ${touch.gap} ms between the taps`,
+      touch.waited,
+    ),
 })

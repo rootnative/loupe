@@ -8,9 +8,11 @@ import {
   describePoint,
   describeTouched,
 } from '../core/touch'
+import { waitedSchema, waitFields, withWaited } from '../core/wait'
 import { selectAndroidDevice } from '../drivers/android/devices'
 import { aimAndroid } from '../drivers/android/element'
 import { tapAndroid } from '../drivers/android/touch'
+import { waitAfterAction } from '../drivers/android/wait'
 
 export const tapCommand = defineCommand({
   name: 'tap',
@@ -20,16 +22,30 @@ export const tapCommand = defineCommand({
     x: coordinateField('x').optional(),
     y: coordinateField('y').optional(),
     ...selectorFields,
+    ...waitFields,
     app: appField,
     device: deviceField,
   }),
   positionals: ['x', 'y'],
-  output: aimedTouchSchema,
-  run: async ({ app, device, ...input }, context) => {
+  output: aimedTouchSchema.extend({ waited: waitedSchema.optional() }),
+  run: async (
+    { app, device, waitStill, waitText, waitTimeout, ...input },
+    context,
+  ) => {
     const target = await selectAndroidDevice(context, device)
     const { point, element } = await aimAndroid(target, targetOf(input), app)
-    return { ...(await tapAndroid(target, point, app)), element }
+    const touch = await tapAndroid(target, point, app)
+    const waited = await waitAfterAction(
+      target,
+      app,
+      { waitStill, waitText, waitTimeout },
+      'tap',
+    )
+    return { ...touch, element, waited }
   },
   format: (touch) =>
-    `Tapped ${describeTouched(touch)} dp, ${touch.pixels.map(describePoint).join(' ')} px in ${touch.orientation}`,
+    withWaited(
+      `Tapped ${describeTouched(touch)} dp, ${touch.pixels.map(describePoint).join(' ')} px in ${touch.orientation}`,
+      touch.waited,
+    ),
 })

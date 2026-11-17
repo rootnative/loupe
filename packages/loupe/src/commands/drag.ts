@@ -8,8 +8,10 @@ import {
   durationField,
   touchSchema,
 } from '../core/touch'
+import { waitedSchema, waitFields, withWaited } from '../core/wait'
 import { selectAndroidDevice } from '../drivers/android/devices'
 import { dragAndroid } from '../drivers/android/gesture'
+import { waitAfterAction } from '../drivers/android/wait'
 
 export const dragCommand = defineCommand({
   name: 'drag',
@@ -41,6 +43,7 @@ export const dragCommand = defineCommand({
       .describe(
         'Where along the move loupe takes the screenshot: 0 is after the start hold, 1 is after the end hold. In between, the touch pauses there while the screenshot runs.',
       ),
+    ...waitFields,
     app: appField,
     device: deviceField,
   }),
@@ -54,26 +57,48 @@ export const dragCommand = defineCommand({
         'Milliseconds that the move took, with a screenshot in the move: on an emulator, measured on the host through the emulator console; on a real device, measured on the device.',
       ),
     shot: z.string().optional().describe('The PNG file, as an absolute path.'),
+    waited: waitedSchema.optional(),
   }),
   run: async (
-    { fromX, fromY, toX, toY, shot, shotAt, app, device, ...timing },
+    {
+      fromX,
+      fromY,
+      toX,
+      toY,
+      shot,
+      shotAt,
+      app,
+      device,
+      waitStill,
+      waitText,
+      waitTimeout,
+      ...timing
+    },
     context,
   ) => {
+    const target = await selectAndroidDevice(context, device)
     const { png, ...drag } = await dragAndroid(
-      await selectAndroidDevice(context, device),
+      target,
       { x: fromX, y: fromY },
       { x: toX, y: toY },
       { ...timing, shotAt: shot ? shotAt : undefined },
       app,
     )
-    return {
-      ...drag,
-      shot: shot && png ? await writeOutputFile(shot, png) : undefined,
-    }
+    const file = shot && png ? await writeOutputFile(shot, png) : undefined
+    const waited = await waitAfterAction(
+      target,
+      app,
+      { waitStill, waitText, waitTimeout },
+      'drag',
+    )
+    return { ...drag, shot: file, waited }
   },
-  format: ({ points, moveTime, shot }) =>
-    [
-      `Dragged ${points.map(describePoint).join(' → ')} dp; the move took ${moveTime} ms`,
-      ...(shot ? [`Saved ${shot}`] : []),
-    ].join('\n'),
+  format: ({ points, moveTime, shot, waited }) =>
+    withWaited(
+      [
+        `Dragged ${points.map(describePoint).join(' → ')} dp; the move took ${moveTime} ms`,
+        ...(shot ? [`Saved ${shot}`] : []),
+      ].join('\n'),
+      waited,
+    ),
 })
