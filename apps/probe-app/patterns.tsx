@@ -1,7 +1,7 @@
-import { type ReactNode, useRef, useState } from 'react'
+import { type ReactNode, useState } from 'react'
 import {
-  type HostInstance,
   I18nManager,
+  type LayoutRectangle,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -270,32 +270,21 @@ function Centred({ variant }: { variant: Variant }) {
 
 const MENU_WIDTH = 160
 
-interface Anchor {
-  x: number
-  y: number
-  width: number
-  height: number
-}
-
-// The menu opens under its button, start edge to start edge. Its place
-// comes from measureInWindow, which is physical. Defect: it writes that
-// place as `left`, which Fabric swaps in RTL, so the menu opens on the far
-// side. The fixed menu writes it under the key that lands on the left.
+// The menu opens under its button, start edge to start edge. Its place on
+// the screen is physical: the bar starts at the left inset, and the button's
+// layout x is physical too. (Not measureInWindow: on Android it leaves out
+// the status bar and a side cutout.) Defect: it writes that place as
+// `left`, which Fabric swaps in RTL, so the menu opens on the far side. The
+// fixed menu writes it under the key that lands on the left.
 function Mirrored({ variant }: { variant: Variant }) {
   const insets = useSafeAreaInsets()
-  const button = useRef<HostInstance>(null)
-  const [anchor, setAnchor] = useState<Anchor>()
-  const measure = () =>
-    button.current?.measureInWindow((x, y, width, height) =>
-      setAnchor({ x, y, width, height }),
-    )
+  const [button, setButton] = useState<LayoutRectangle>()
 
   const swap = I18nManager.isRTL && I18nManager.doLeftAndRightSwapInRTL
   let place: { left: number } | { right: number } | undefined
-  if (anchor) {
-    const left = I18nManager.isRTL
-      ? anchor.x + anchor.width - MENU_WIDTH
-      : anchor.x
+  if (button) {
+    const x = insets.left + button.x
+    const left = I18nManager.isRTL ? x + button.width - MENU_WIDTH : x
     place = variant === 'fixed' && swap ? { right: left } : { left }
   }
 
@@ -303,20 +292,23 @@ function Mirrored({ variant }: { variant: Variant }) {
     <>
       <View style={[styles.bar, { top: insets.top }, sideInsets(insets)]}>
         <Pressable
-          ref={button}
           testID="menu-button"
           accessibilityRole="button"
           onPress={() => {}}
-          onLayout={measure}
+          onLayout={(event) => setButton(event.nativeEvent.layout)}
           style={styles.button}
         >
           <Text>Menu</Text>
         </Pressable>
       </View>
-      {anchor && place && (
+      {button && place && (
         <View
           testID="menu"
-          style={[styles.menu, { top: anchor.y + anchor.height }, place]}
+          style={[
+            styles.menu,
+            { top: insets.top + button.y + button.height },
+            place,
+          ]}
         >
           <Text testID="menu-edit">Edit</Text>
           <Text testID="menu-delete">Delete</Text>

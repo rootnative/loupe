@@ -3,7 +3,8 @@
 // twin, in portrait and in both landscapes, with the hole cutout, in LTR and
 // in RTL. For each screen it keeps the raw uiautomator dump in which the
 // probe shows that screen, and a screenshot; for each rotation, the display
-// dump. The "Check fixtures" workflow runs it in CI.
+// dump. A screen that never shows leaves its last dump, a screenshot and a
+// logcat tail. The "Check fixtures" workflow runs it in CI.
 //
 // Run it from the root of the repository, after `pnpm install` and the build,
 // on one booted emulator with a clean system image. Don't run it on a phone.
@@ -65,17 +66,25 @@ function fail(what) {
   console.error(`FAIL: ${what}`)
 }
 
+// A screenshot of a busy screen passes 1 MB, the default of spawnSync.
+const MAX_BUFFER = 64 * 1024 * 1024
+
 /**
  * Saves the output of one adb command, as the shell recorders do: stdout in
  * `file`, stderr in `<file>.stderr` and a non-zero exit code in
  * `<file>.exit`.
  */
 function capture(file, args) {
-  const result = spawnSync(ADB, args, { timeout: 120_000 })
+  const result = spawnSync(ADB, args, {
+    timeout: 120_000,
+    maxBuffer: MAX_BUFFER,
+  })
   mkdirSync(path.dirname(file), { recursive: true })
   writeFileSync(file, result.stdout ?? Buffer.alloc(0))
   if (result.stderr?.length) writeFileSync(`${file}.stderr`, result.stderr)
-  if (result.status !== 0) writeFileSync(`${file}.exit`, `${result.status}\n`)
+  if (result.status !== 0) {
+    writeFileSync(`${file}.exit`, `${result.status ?? result.error}\n`)
+  }
   return result
 }
 
@@ -95,6 +104,17 @@ function loupe(...args) {
     console.log(`loupe ${args.join(' ')}: no JSON (${result.status})`)
     return { ok: false }
   }
+}
+
+/** The window in front, from `mCurrentFocus`. */
+function focus() {
+  const dump =
+    spawnSync(ADB, ['shell', 'dumpsys', 'window', 'displays'], {
+      encoding: 'utf8',
+      timeout: 60_000,
+      maxBuffer: MAX_BUFFER,
+    }).stdout ?? ''
+  return /mCurrentFocus=Window\{\S+ \S+ ([^}]+)\}/.exec(dump)?.[1] ?? 'none'
 }
 
 /** The probe report in a uiautomator dump, in either quote form. */
@@ -118,20 +138,45 @@ function probeOf(dump) {
 const shapeOf = ({ width, height }) =>
   width > height ? 'landscape' : 'portrait'
 
+/** Opens the route in Expo Go, and logs what `open-url` gave. */
+function open(route, log) {
+  const opened = loupe(
+    'open-url',
+    `exp://127.0.0.1:${PORT}/--${route}`,
+    '--app',
+    EXPO_GO,
+  )
+  log.push(
+    opened.ok
+      ? `${route}: opened in ${opened.data.activity ?? 'no activity'} (${opened.data.launchState ?? '?'}, ${opened.data.totalTime ?? '?'} ms)`
+      : `${route}: open-url failed: ${opened.error?.code ?? 'no JSON'}`,
+  )
+}
+
+// While the screen doesn't show, the link goes again this often. On Android
+// 14 and later, Expo Go can leave the front after a cold start in RTL and not
+// come back; a new link brings it back.
+const OPEN_AGAIN_MS = 20_000
+
 /**
- * Dumps the screen until the probe shows `route` in `direction`, with a
- * window of `shape` (any shape when it's undefined), for up to `limit` ms.
- * On the way it taps through Expo Go's developer menu ("Continue", then
- * "Close") and an "isn't responding" dialog. Gives the dump that matched, or
- * undefined. Each dump adds a line to `log`.
+ * Opens the route, then dumps the screen until the probe shows `route` in
+ * `direction`, with a window of `shape` (any shape when it's undefined), for
+ * up to `limit` ms. On the way it taps through Expo Go's developer menu
+ * ("Continue", then "Close") and an "isn't responding" dialog, and opens the
+ * route again every 20 s. Gives the last dump and whether it matched. Each
+ * step adds a line to `log`.
  */
-async function waitForRoute(route, direction, shape, limit, log) {
+async function showRoute(route, direction, shape, limit, log) {
   const start = Date.now()
+  let openedAt = start
+  open(route, log)
+  let dump = ''
   while (Date.now() - start < limit) {
-    const dump =
+    dump =
       spawnSync(ADB, ['exec-out', 'uiautomator', 'dump', '/dev/tty'], {
         encoding: 'utf8',
         timeout: 60_000,
+        maxBuffer: MAX_BUFFER,
       }).stdout ?? ''
     const probe = probeOf(dump)
     const ms = Date.now() - start
@@ -143,7 +188,7 @@ async function waitForRoute(route, direction, shape, limit, log) {
       probe.direction === direction &&
       (shape === undefined || shapeOf(probe.window) === shape)
     ) {
-      return dump
+      return { dump, matched: true }
     }
     if (dump.includes('resource-id="android:id/aerr_wait"')) {
       loupe('tap', '--id', 'android:id/aerr_wait')
@@ -151,19 +196,21 @@ async function waitForRoute(route, direction, shape, limit, log) {
       loupe('tap', '--text', 'Continue', '--app', EXPO_GO)
     } else if (dump.includes('text="Go home"')) {
       loupe('tap', '--label', 'Close', '--app', EXPO_GO)
+    } else if (Date.now() - openedAt >= OPEN_AGAIN_MS) {
+      log.push(`${route}: ${ms} ms, in front: ${focus()}; open again`)
+      open(route, log)
+      openedAt = Date.now()
     }
     await sleep(500)
   }
-  return undefined
+  return { dump, matched: false }
 }
 
-function open(route) {
-  return loupe(
-    'open-url',
-    `exp://127.0.0.1:${PORT}/--${route}`,
-    '--app',
-    EXPO_GO,
-  )
+/** What a failed wait leaves: the last dump, the screen, and the log. */
+function keepTimeout(file, dump) {
+  writeFileSync(`${file}.ui-tty.txt`, dump)
+  capture(`${file}.png`, ['exec-out', 'screencap', '-p'])
+  capture(`${file}.logcat.txt`, ['logcat', '-d', '-t', '500'])
 }
 
 /** The file name of a route: /inset/defect gives inset-defect. */
@@ -182,8 +229,7 @@ async function recordDirection(direction) {
     spawnSync(ADB, ['shell', 'am', 'force-stop', EXPO_GO])
 
     const openLog = []
-    open(ROUTES[0])
-    const first = await waitForRoute(
+    const first = await showRoute(
       ROUTES[0],
       direction,
       undefined,
@@ -194,13 +240,9 @@ async function recordDirection(direction) {
       path.join(out, direction, 'open.txt'),
       `${openLog.join('\n')}\n`,
     )
-    if (!first) {
+    if (!first.matched) {
       fail(`${direction}: the app never showed ${ROUTES[0]} in ${direction}`)
-      capture(path.join(out, direction, 'open-timeout.png'), [
-        'exec-out',
-        'screencap',
-        '-p',
-      ])
+      keepTimeout(path.join(out, direction, 'open-timeout'), first.dump)
       return
     }
 
@@ -217,18 +259,13 @@ async function recordDirection(direction) {
 
       for (const route of ROUTES) {
         const name = nameOf(route)
-        open(route)
-        const dump = await waitForRoute(route, direction, shape, 60_000, log)
-        if (!dump) {
+        const shown = await showRoute(route, direction, shape, 60_000, log)
+        if (!shown.matched) {
           fail(`${direction}/${orientation}: no probe for ${route}`)
-          capture(path.join(dir, `${name}.timeout.png`), [
-            'exec-out',
-            'screencap',
-            '-p',
-          ])
+          keepTimeout(path.join(dir, `${name}.timeout`), shown.dump)
           continue
         }
-        writeFileSync(path.join(dir, `${name}.ui-tty.txt`), dump)
+        writeFileSync(path.join(dir, `${name}.ui-tty.txt`), shown.dump)
         capture(path.join(dir, `${name}.png`), ['exec-out', 'screencap', '-p'])
         if (route === ROUTES[0]) {
           capture(path.join(dir, 'dumpsys-window-displays.txt'), [
