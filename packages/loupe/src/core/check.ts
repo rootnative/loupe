@@ -1,17 +1,41 @@
 import { z } from 'zod'
 import { type DisplayState } from './display'
-import { describeElement, type Element, elementSchema } from './element'
+import {
+  describeElement,
+  type Element,
+  elementSchema,
+  findNode,
+  type Selector,
+} from './element'
 import { LoupeError } from './errors'
+import { type ColumnSpan, inkColumns } from './ink'
 import { EDGES, type Edge, type InsetsReading } from './insets'
+import { type Image, type PixelRect } from './png'
 import { type UiNode } from './ui'
-import { intersection, type Rect, round2 } from './units'
+import {
+  containsRect,
+  intersection,
+  type Rect,
+  rectRight,
+  round2,
+} from './units'
 
-export const RULES = ['inset', 'overflow', 'touch-target'] as const
+export const RULES = ['inset', 'overflow', 'centred', 'touch-target'] as const
 
 export type RuleName = (typeof RULES)[number]
 
 /** The smallest touch target on Android, in dp (48 × 48). */
 export const MIN_TOUCH_TARGET = 48
+
+/** `centred` finds an element more than this off centre, in dp. */
+export const CENTRE_TOLERANCE = 4
+
+/**
+ * A text more than this from the elements on each side, in dp, is aligned
+ * to neither of them, so `centred` expects it at the centre of its
+ * container.
+ */
+export const CLEAR_GAP = 24
 
 export const findingSchema = z.object({
   element: elementSchema,
@@ -30,6 +54,10 @@ export const ruleResultSchema = z.object({
   passed: z.boolean(),
   checked: z.number().describe('The elements that the rule looked at.'),
   findings: z.array(findingSchema),
+  warnings: z
+    .array(z.string())
+    .optional()
+    .describe('Elements that you named, but the rule could not check.'),
 })
 
 export type RuleResult = z.infer<typeof ruleResultSchema>
@@ -41,6 +69,16 @@ export interface CheckedScreen {
   app?: string
   nodes: readonly UiNode[]
   insets: InsetsReading
+  /**
+   * A screenshot of the same screen, in px. `centred` finds the ink of a
+   * text in it; with no image, it takes the whole frame as the ink.
+   */
+  image?: Image
+}
+
+export interface CheckOptions {
+  /** Elements that must be at the centre of their container (`centred`). */
+  centred?: readonly Selector[]
 }
 
 type Axis = 'x' | 'y'
@@ -337,12 +375,258 @@ export function checkOverflow(screen: CheckedScreen): RuleResult {
   }
 }
 
+function everyNode(nodes: readonly UiNode[]): UiNode[] {
+  return nodes.flatMap((node) => [node, ...everyNode(node.children ?? [])])
+}
+
+function toPixelRect(frame: Rect, scale: number): PixelRect {
+  const x = Math.round(frame.x * scale)
+  const y = Math.round(frame.y * scale)
+  return {
+    x,
+    y,
+    width: Math.round(rectRight(frame) * scale) - x,
+    height: Math.round((frame.y + frame.height) * scale) - y,
+  }
+}
+
+/**
+ * The columns where the element shows, in dp: its ink in the screenshot,
+ * with the other elements that draw over or under its frame masked. Its
+ * frame when there is no screenshot, or no ink in it.
+ */
+function inkOf(
+  node: UiNode,
+  screen: CheckedScreen,
+  drawn: readonly UiNode[],
+): ColumnSpan {
+  const { frame } = node
+  const whole = { from: frame.x, to: rectRight(frame) }
+  if (!screen.image) return whole
+  const { scale } = screen.display
+  const own = new Set(everyNode([node]))
+  const masks = drawn
+    .filter(
+      (other) =>
+        !own.has(other) &&
+        intersection(other.frame, frame) !== null &&
+        !containsRect(other.frame, frame, tolerance(screen)),
+    )
+    .map((other) => toPixelRect(other.frame, scale))
+  const span = inkColumns(screen.image, toPixelRect(frame, scale), masks)
+  return span ? { from: span.from / scale, to: span.to / scale } : whole
+}
+
+/** Where an element shows along x, what is beside it, and what holds it. */
+interface Centring {
+  ink: ColumnSpan
+  /** The nearest element on each side, in its row. */
+  left?: UiNode
+  right?: UiNode
+  /** The smallest element that holds it and those two. */
+  container: UiNode
+  /** Each element on each side, in its row, inside the container. */
+  lefts: UiNode[]
+  rights: UiNode[]
+}
+
+function centringOf(
+  node: UiNode,
+  screen: CheckedScreen,
+  placed: readonly Placed[],
+  drawn: readonly UiNode[],
+): Centring | null {
+  const near = tolerance(screen)
+  const { frame } = node
+  const ink = inkOf(node, screen, drawn)
+  const own = new Set(everyNode([node]))
+  const beside = placed
+    .map((item) => item.node)
+    .filter(
+      (other) =>
+        !own.has(other) &&
+        matters(other) &&
+        onScreen(other, screen) &&
+        !containsRect(other.frame, frame, near) &&
+        other.frame.y < frame.y + frame.height &&
+        frame.y < other.frame.y + other.frame.height,
+    )
+  const lefts = beside.filter(
+    (other) => rectRight(other.frame) <= ink.from + near,
+  )
+  const rights = beside.filter((other) => other.frame.x >= ink.to - near)
+  const left = lefts.reduce<UiNode | undefined>(
+    (best, other) =>
+      !best || rectRight(other.frame) > rectRight(best.frame) ? other : best,
+    undefined,
+  )
+  const right = rights.reduce<UiNode | undefined>(
+    (best, other) => (!best || other.frame.x < best.frame.x ? other : best),
+    undefined,
+  )
+
+  const held = [frame, left?.frame, right?.frame].filter(
+    (rect): rect is Rect => rect !== undefined,
+  )
+  const area = (rect: Rect) => rect.width * rect.height
+  const container = placed
+    .map((item) => item.node)
+    .filter(
+      (other) =>
+        !own.has(other) &&
+        held.every((rect) => containsRect(other.frame, rect, near)),
+    )
+    .reduce<UiNode | undefined>(
+      (best, other) =>
+        !best || area(other.frame) < area(best.frame) ? other : best,
+      undefined,
+    )
+  if (!container) return null
+
+  const inside = (other: UiNode) =>
+    containsRect(container.frame, other.frame, near)
+  return {
+    ink,
+    left,
+    right,
+    container,
+    lefts: lefts.filter(inside),
+    rights: rights.filter(inside),
+  }
+}
+
+/**
+ * True when the frame ends where the tree ends, short of the screen: on
+ * API 30 the tree can stop before the screen edge, and cut the frame there.
+ */
+function cutByTree(frame: Rect, screen: CheckedScreen): boolean {
+  const area = treeArea(screen)
+  const near = tolerance(screen)
+  const shortLeft = area.x > near
+  const shortRight = rectRight(area) < screen.display.size.width - near
+  return (
+    (shortLeft && frame.x <= area.x + near) ||
+    (shortRight && rectRight(frame) >= rectRight(area) - near)
+  )
+}
+
+/** From the container's centre to the ink's centre, in dp; negative is left. */
+function offCentre({ ink, container }: Centring): number {
+  const { x, width } = container.frame
+  return (ink.from + ink.to) / 2 - (x + width / 2)
+}
+
+function describeOff(off: number, container: UiNode): string {
+  return `${round2(Math.abs(off))} dp ${off < 0 ? 'left' : 'right'} of the centre of its container, ${name(container)}`
+}
+
+function centreDetails(
+  centring: Centring,
+  off: number,
+): Record<string, number> {
+  const { ink, container } = centring
+  return {
+    offCentre: off,
+    centre: (ink.from + ink.to) / 2,
+    containerCentre: container.frame.x + container.frame.width / 2,
+  }
+}
+
+/**
+ * `centred`: a text that sits between an element on its left and one on its
+ * right, more than `CLEAR_GAP` from both, is aligned to neither, so it must
+ * be at the centre of its container: the smallest element that holds it and
+ * those two. Its place is its ink in the screenshot: a wide frame can hold
+ * text centred in that frame, off the container's centre. A row of like
+ * items (its type on both sides) and a horizontal scroll view are left out.
+ * Each element in `options.centred` is checked against its container
+ * whatever sits beside it.
+ */
+export function checkCentred(
+  screen: CheckedScreen,
+  options: CheckOptions = {},
+): RuleResult {
+  const placed = place(screen)
+  const drawn = everyNode(screen.nodes)
+  const findings: Finding[] = []
+  const warnings: string[] = []
+  let checked = 0
+
+  const named = new Set(
+    (options.centred ?? []).map((selector) =>
+      findNode(
+        screen.nodes,
+        selector,
+        screen.display.size,
+        'Name one by another selector.',
+      ),
+    ),
+  )
+  for (const node of named) {
+    const centring = centringOf(node, screen, placed, drawn)
+    if (!centring) {
+      warnings.push(
+        `No element holds ${name(node)}, so it has no centre to be at.`,
+      )
+      continue
+    }
+    if (cutByTree(centring.container.frame, screen)) {
+      warnings.push(
+        `loupe can't find the centre of the container of ${name(node)}: the tree ends short of the screen there.`,
+      )
+      continue
+    }
+    checked += 1
+    const off = offCentre(centring)
+    if (Math.abs(off) > CENTRE_TOLERANCE) {
+      findings.push({
+        element: toElement(node),
+        message: `${name(node)} is ${describeOff(off, centring.container)}.`,
+        details: centreDetails(centring, off),
+      })
+    }
+  }
+
+  for (const { node, scrollAxes } of placed) {
+    if (named.has(node) || !node.text || scrollAxes.has('x')) continue
+    if (!onScreen(node, screen)) continue
+    const centring = centringOf(node, screen, placed, drawn)
+    if (!centring?.left || !centring.right) continue
+    const { ink, left, right, lefts, rights, container } = centring
+    const likeItems =
+      lefts.some((other) => other.type === node.type) &&
+      rights.some((other) => other.type === node.type)
+    const leftGap = ink.from - rectRight(left.frame)
+    const rightGap = right.frame.x - ink.to
+    if (likeItems || leftGap <= CLEAR_GAP || rightGap <= CLEAR_GAP) continue
+    if (cutByTree(container.frame, screen)) continue
+    checked += 1
+    const off = offCentre(centring)
+    if (Math.abs(off) > CENTRE_TOLERANCE) {
+      findings.push({
+        element: toElement(node),
+        message: `${name(node)} sits between ${name(left)} and ${name(right)}, clear of both, but ${describeOff(off, container)}.`,
+        details: { ...centreDetails(centring, off), leftGap, rightGap },
+      })
+    }
+  }
+
+  return {
+    rule: 'centred',
+    passed: findings.length === 0,
+    checked,
+    findings,
+    ...(warnings.length > 0 ? { warnings } : {}),
+  }
+}
+
 export const RULE_CHECKS: Record<
   RuleName,
-  (screen: CheckedScreen) => RuleResult
+  (screen: CheckedScreen, options?: CheckOptions) => RuleResult
 > = {
   inset: checkInset,
   overflow: checkOverflow,
+  centred: checkCentred,
   'touch-target': checkTouchTarget,
 }
 
@@ -364,8 +648,9 @@ export function rulesOf(text: string | undefined): RuleName[] {
 
 /** One line for each rule, and one for each finding, for a person. */
 export function describeResults(results: readonly RuleResult[]): string[] {
-  return results.flatMap(({ rule, passed, checked, findings }) => [
+  return results.flatMap(({ rule, passed, checked, findings, warnings }) => [
     `${rule}: ${passed ? 'pass' : 'fail'} (${checked} elements${passed ? '' : `, ${findings.length} findings`})`,
     ...findings.map((finding) => `  ${finding.message}`),
+    ...(warnings ?? []).map((warning) => `  Warning: ${warning}`),
   ])
 }

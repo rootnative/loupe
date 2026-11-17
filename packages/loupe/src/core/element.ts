@@ -134,11 +134,6 @@ export interface FoundElement {
   point: Point
 }
 
-/**
- * Finds the one element that the selector names, and the point to touch:
- * the centre of the part that is on the screen. Exactly one element must be
- * on the screen; else `element_ambiguous` ends with `whenAmbiguous`.
- */
 interface OnScreen {
   node: UiNode
   /** The part of the node on the screen. */
@@ -177,12 +172,37 @@ export function elementsOnScreen(
   )
 }
 
+/**
+ * Finds the one element that the selector names, and the point to touch:
+ * the centre of the part that is on the screen. Exactly one element must be
+ * on the screen; else `element_ambiguous` ends with `whenAmbiguous`.
+ */
 export function findElement(
   nodes: readonly UiNode[],
   selector: Selector,
   screen: Size,
   whenAmbiguous = 'Touch one by its point, or by another selector.',
 ): FoundElement {
+  const { node, part } = findOnScreen(nodes, selector, screen, whenAmbiguous)
+  return { element: toElement(node), point: rectCentre(part) }
+}
+
+/** As `findElement`, but gives the node of the tree itself. */
+export function findNode(
+  nodes: readonly UiNode[],
+  selector: Selector,
+  screen: Size,
+  whenAmbiguous: string,
+): UiNode {
+  return findOnScreen(nodes, selector, screen, whenAmbiguous).node
+}
+
+function findOnScreen(
+  nodes: readonly UiNode[],
+  selector: Selector,
+  screen: Size,
+  whenAmbiguous: string,
+): OnScreen {
   const all = everyNode(nodes)
   if (!all.some((node) => matches(node, selector))) {
     throw notFound(all, selector)
@@ -207,7 +227,7 @@ export function findElement(
     )
   }
 
-  return { element: toElement(first.node), point: rectCentre(first.part) }
+  return first
 }
 
 /** A short name for an element in a summary line. */

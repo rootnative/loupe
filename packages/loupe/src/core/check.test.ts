@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import {
+  checkCentred,
   checkInset,
   checkOverflow,
   type CheckedScreen,
@@ -7,6 +8,7 @@ import {
   describeResults,
   rulesOf,
 } from './check'
+import { type Image } from './png'
 import { type UiNode } from './ui'
 
 const SIZE = { width: 900, height: 400 }
@@ -57,7 +59,12 @@ function root(children: UiNode[], type = 'android.widget.FrameLayout'): UiNode {
 
 describe('rulesOf', () => {
   it('gives each rule by default, and a comma list in order, once each', () => {
-    expect(rulesOf(undefined)).toEqual(['inset', 'overflow', 'touch-target'])
+    expect(rulesOf(undefined)).toEqual([
+      'inset',
+      'overflow',
+      'centred',
+      'touch-target',
+    ])
     expect(rulesOf('touch-target, inset,inset')).toEqual([
       'touch-target',
       'inset',
@@ -65,10 +72,10 @@ describe('rulesOf', () => {
   })
 
   it('refuses a name that is not a rule', () => {
-    expect(() => rulesOf('inset,centred')).toThrow(
+    expect(() => rulesOf('inset,centered')).toThrow(
       expect.objectContaining({
         code: 'invalid_input',
-        message: expect.stringContaining('"centred" isn\'t a rule'),
+        message: expect.stringContaining('"centered" isn\'t a rule'),
       }),
     )
   })
@@ -280,17 +287,227 @@ describe('checkOverflow', () => {
   })
 })
 
+describe('checkCentred', () => {
+  const button = (x: number, label: string) =>
+    node([x, 32, 48, 48], {
+      type: 'android.view.ViewGroup',
+      label,
+      clickable: true,
+    })
+
+  /**
+   * A bar across the safe area (50–900 dp, centre 475), a back button and
+   * three actions. As in Fabric's tree, they sit beside the bar, not in it.
+   */
+  function bar(title: UiNode, width = SIZE.width): UiNode {
+    return root([
+      node([50, 24, width - 50, 64], {
+        type: 'android.view.ViewGroup',
+        id: 'bar',
+      }),
+      button(50, 'Back'),
+      title,
+      button(width - 144, 'Search'),
+      button(width - 96, 'Share'),
+      button(width - 48, 'More'),
+    ])
+  }
+
+  const title = (x: number, width = 120) =>
+    node([x, 44, width, 24], { text: 'Title', id: 'title' })
+
+  it('finds a title clear of both ends, off the centre of its container', () => {
+    const result = checkCentred(screen([bar(title(520))]))
+
+    expect(result).toMatchObject({ rule: 'centred', passed: false, checked: 1 })
+    expect(result.findings).toEqual([
+      {
+        element: expect.objectContaining({ text: 'Title' }),
+        message:
+          '"Title" sits between label "Back" and label "Search", clear of both, but 105 dp right of the centre of its container, #bar.',
+        details: {
+          offCentre: 105,
+          centre: 580,
+          containerCentre: 475,
+          leftGap: 422,
+          rightGap: 116,
+        },
+      },
+    ])
+  })
+
+  it('passes a title within 4 dp of the centre', () => {
+    expect(checkCentred(screen([bar(title(415))]))).toMatchObject({
+      passed: true,
+      checked: 1,
+    })
+    expect(checkCentred(screen([bar(title(419))])).passed).toBe(true)
+    expect(checkCentred(screen([bar(title(420))])).passed).toBe(false)
+  })
+
+  it('skips a title within 24 dp of an end: it can be aligned to it', () => {
+    expect(checkCentred(screen([bar(title(122))]))).toMatchObject({
+      passed: true,
+      checked: 0,
+    })
+  })
+
+  it('skips a text with nothing on one side, a row of like items, and a horizontal scroll view', () => {
+    const oneSide = root([button(50, 'Back'), title(520)])
+    const likeItems = root(
+      ['One', 'Two', 'Three', 'Four'].map((text, index) =>
+        node([100 + index * 200, 200, 60, 20], { text }),
+      ),
+    )
+    const carousel = root([
+      node([0, 100, 900, 100], {
+        type: 'android.widget.HorizontalScrollView',
+        scrollable: true,
+        children: [button(100, 'Previous'), title(520), button(800, 'Next')],
+      }),
+    ])
+
+    for (const nodes of [oneSide, likeItems, carousel]) {
+      expect(checkCentred(screen([nodes]))).toMatchObject({
+        passed: true,
+        checked: 0,
+      })
+    }
+  })
+
+  it('skips a container that ends where the tree ends, short of the screen', () => {
+    // On API 30 in landscape, the tree and the bar end at 814 dp.
+    const short = {
+      ...bar(title(470), 814),
+      frame: { x: 0, y: 0, width: 814, height: 400 },
+    }
+
+    expect(checkCentred(screen([short]))).toMatchObject({
+      passed: true,
+      checked: 0,
+    })
+  })
+
+  describe('with a screenshot', () => {
+    const SCALE = 2
+
+    /** The screen at 2 px per dp: the bar, its buttons, and black ink. */
+    function shot(ink: { from: number; to: number }): Image {
+      const width = SIZE.width * SCALE
+      const height = SIZE.height * SCALE
+      const data = new Uint8Array(width * height * 4)
+      const paint = (
+        x: number,
+        y: number,
+        w: number,
+        h: number,
+        colour: number[],
+      ) => {
+        for (let row = y * SCALE; row < (y + h) * SCALE; row += 1) {
+          for (let column = x * SCALE; column < (x + w) * SCALE; column += 1) {
+            data.set([...colour, 255], (row * width + column) * 4)
+          }
+        }
+      }
+      paint(0, 0, SIZE.width, SIZE.height, [0xf3, 0xf0, 0xea])
+      paint(50, 24, 850, 64, [0xd9, 0xe2, 0xec])
+      for (const x of [50, 756, 804, 852])
+        paint(x, 32, 48, 48, [0xbc, 0xcc, 0xdc])
+      paint(ink.from, 48, ink.to - ink.from, 16, [0, 0, 0])
+      return { width, height, data }
+    }
+
+    it('finds text centred in a wide frame that fills the space between the ends', () => {
+      const wide = title(98, 658)
+      const centredInFrame = { from: 397, to: 457 }
+
+      expect(checkCentred(screen([bar(wide)])).checked).toBe(0)
+      const result = checkCentred({
+        ...screen([bar(wide)]),
+        image: shot(centredInFrame),
+      })
+      expect(result.findings.map((finding) => finding.message)).toEqual([
+        '"Title" sits between label "Back" and label "Search", clear of both, but 48 dp left of the centre of its container, #bar.',
+      ])
+    })
+
+    it('passes text at the centre of a frame over the whole bar, with the buttons masked', () => {
+      const over = node([50, 24, 850, 64], { text: 'Title' })
+
+      expect(
+        checkCentred({
+          ...screen([bar(over)]),
+          image: shot({ from: 445, to: 505 }),
+        }),
+      ).toMatchObject({ passed: true, checked: 1 })
+    })
+  })
+
+  describe('a named element', () => {
+    it('is checked against its container, whatever sits beside it', () => {
+      const result = checkCentred(screen([bar(title(122))]), {
+        centred: [
+          { by: 'text', value: 'Title' },
+          { by: 'id', value: 'title' },
+        ],
+      })
+
+      expect(result).toMatchObject({ passed: false, checked: 1 })
+      expect(result.findings).toEqual([
+        {
+          element: expect.objectContaining({ text: 'Title' }),
+          message:
+            '"Title" is 293 dp left of the centre of its container, #bar.',
+          details: { offCentre: -293, centre: 182, containerCentre: 475 },
+        },
+      ])
+    })
+
+    it('must be on the screen', () => {
+      expect(() =>
+        checkCentred(screen([bar(title(415))]), {
+          centred: [{ by: 'text', value: 'Heading' }],
+        }),
+      ).toThrow(expect.objectContaining({ code: 'element_not_found' }))
+    })
+
+    it('gives a warning when the tree cuts its container short', () => {
+      const short = {
+        ...bar(title(470), 814),
+        frame: { x: 0, y: 0, width: 814, height: 400 },
+      }
+
+      expect(
+        checkCentred(screen([short]), {
+          centred: [{ by: 'text', value: 'Title' }],
+        }),
+      ).toEqual({
+        rule: 'centred',
+        passed: true,
+        checked: 0,
+        findings: [],
+        warnings: [
+          'loupe can\'t find the centre of the container of "Title": the tree ends short of the screen there.',
+        ],
+      })
+    })
+  })
+})
+
 describe('describeResults', () => {
-  it('gives one line for each rule and each finding', () => {
+  it('gives one line for each rule, each finding and each warning', () => {
     const results = [
       checkInset(screen([root([node([10, 10, 100, 20], { text: 'Title' })])])),
       checkTouchTarget(screen([root([])])),
+      { ...checkTouchTarget(screen([root([])])), warnings: ['Look again.'] },
     ]
 
     expect(describeResults(results)).toEqual([
       'inset: fail (1 elements, 1 findings)',
       '  "Title" reaches 14 dp into the top inset and 40 dp into the left inset.',
       'touch-target: pass (0 elements)',
+      'touch-target: pass (0 elements)',
+      '  Warning: Look again.',
     ])
   })
 })
