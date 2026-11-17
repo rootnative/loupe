@@ -11,7 +11,7 @@ import { LoupeError } from './errors'
 import { type ColumnSpan, inkColumns } from './ink'
 import { EDGES, type Edge, type InsetsReading } from './insets'
 import { type Image, type PixelRect } from './png'
-import { type UiNode } from './ui'
+import { type Axis, scrollAxisOf, type UiNode } from './ui'
 import {
   containsRect,
   intersection,
@@ -95,8 +95,6 @@ export interface CheckOptions {
   mirrorOf?: ScreenTree
 }
 
-type Axis = 'x' | 'y'
-
 /** One node, with what the rules need to know about where it sits. */
 interface Placed {
   node: UiNode
@@ -106,11 +104,6 @@ interface Placed {
 }
 
 const EXPO_GO = 'host.exp.exponent'
-
-/** A scroll view scrolls along x when its class says so, else along y. */
-function scrollAxisOf(node: UiNode): Axis {
-  return /HorizontalScrollView|ViewPager/.test(node.type) ? 'x' : 'y'
-}
 
 /**
  * Each node that the rules can look at. In Expo Go, its own overlay (the

@@ -51,13 +51,29 @@ interface TargetInput {
   id?: string
 }
 
-/** The point or the element that the input names. It must name one. */
-export function targetOf({ x, y, text, label, id }: TargetInput): TouchTarget {
-  const selectors: Selector[] = [
+function selectorsOf({ text, label, id }: TargetInput): Selector[] {
+  return [
     ...(text === undefined ? [] : [{ by: 'text', value: text } as const]),
     ...(label === undefined ? [] : [{ by: 'label', value: label } as const]),
     ...(id === undefined ? [] : [{ by: 'id', value: id } as const]),
   ]
+}
+
+/** The element that the input names: one of text, label and id. */
+export function selectorOf(input: TargetInput): Selector {
+  const [selector, ...more] = selectorsOf(input)
+  if (!selector || more.length > 0) {
+    throw new LoupeError(
+      'invalid_input',
+      'Name one element: one of text, label and id.',
+    )
+  }
+  return selector
+}
+
+/** The point or the element that the input names. It must name one. */
+export function targetOf({ x, y, text, label, id }: TargetInput): TouchTarget {
+  const selectors = selectorsOf({ text, label, id })
   const hasPoint = x !== undefined || y !== undefined
   const [selector] = selectors
 

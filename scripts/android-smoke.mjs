@@ -365,6 +365,36 @@ check(
   'rotate: the screen is portrait',
 )
 
+// "System" is below the fold of the Settings list. The drags must not fling
+// past it, and the last one must bring it whole into the list.
+const down = loupe('scroll-to', '--text', 'System', '--app', SETTINGS)
+const list = down.data?.scrollView?.frame
+const found = down.data?.element.frame
+check(
+  down.ok &&
+    down.data.scrolls >= 1 &&
+    list !== undefined &&
+    found.y > list.y &&
+    found.y + found.height < list.y + list.height,
+  `scroll-to: "System" is whole in the list after ${down.data?.scrolls} drags down`,
+)
+if (!down.ok) keepScreen('scroll-to-down.png')
+
+const up = loupe(
+  'scroll-to',
+  '--text',
+  'Network & internet',
+  '--direction',
+  'up',
+  '--app',
+  SETTINGS,
+)
+check(
+  up.ok && up.data.scrolls >= 1,
+  `scroll-to --direction up: "Network & internet" is in view after ${up.data?.scrolls} drags up`,
+)
+if (!up.ok) keepScreen('scroll-to-up.png')
+
 const nothing = loupe('open-url', 'loupe-smoke://nothing')
 check(
   nothing.error?.code === 'no_handler' && nothing.exit === 1,

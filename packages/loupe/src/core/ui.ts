@@ -42,6 +42,13 @@ export const uiNodeSchema = z.object({
 
 export type UiNode = z.infer<typeof uiNodeSchema>
 
+export type Axis = 'x' | 'y'
+
+/** A scroll view scrolls along x when its class says so, else along y. */
+export function scrollAxisOf(node: UiNode): Axis {
+  return /HorizontalScrollView|ViewPager/.test(node.type) ? 'x' : 'y'
+}
+
 function describeNode(node: UiNode): string {
   const { x, y, width, height } = node.frame
   const parts = [node.type.slice(node.type.lastIndexOf('.') + 1)]

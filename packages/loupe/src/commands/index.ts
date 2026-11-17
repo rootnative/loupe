@@ -11,6 +11,7 @@ import { openUrlCommand } from './open-url'
 import { pinchCommand } from './pinch'
 import { rotateCommand } from './rotate'
 import { screenshotCommand } from './screenshot'
+import { scrollToCommand } from './scroll-to'
 import { swipeCommand } from './swipe'
 import { tapCommand } from './tap'
 import { typeCommand } from './type'
@@ -32,6 +33,7 @@ export const registry = createRegistry([
   pinchCommand,
   rotateCommand,
   screenshotCommand,
+  scrollToCommand,
   swipeCommand,
   tapCommand,
   typeCommand,
