@@ -2,7 +2,7 @@
   "name": "probe-app",
   "private": true,
   "version": "0.0.0",
-  "description": "A small Expo app that renders the loupe probe. CI opens it in Expo Go on an emulator to record and check the probe.",
+  "description": "A small Expo app that renders the loupe probe, and layout patterns: each defect with its fixed twin. CI opens it in Expo Go on an emulator to record and check them.",
   "license": "MIT",
   "main": "index.ts",
   "scripts": {

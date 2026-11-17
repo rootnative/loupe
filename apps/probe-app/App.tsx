@@ -1,15 +1,41 @@
 import { LoupeProbe } from '@rootnative/loupe-probe'
-import { StyleSheet, Text, useColorScheme, View } from 'react-native'
+import { useEffect, useState } from 'react'
+import { Linking, StyleSheet, Text, useColorScheme, View } from 'react-native'
 import {
   SafeAreaProvider,
   useSafeAreaInsets,
 } from 'react-native-safe-area-context'
+import { PatternScreen, patternOf } from './patterns'
+
+/**
+ * The route of a link: `exp://127.0.0.1:8081/--/inset/defect` gives
+ * `/inset/defect`, and a link with no path gives `/`.
+ */
+function routeOf(url: string | null | undefined): string {
+  const path = url?.split('/--/')[1]?.split(/[?#]/)[0] ?? ''
+  return `/${path.replace(/^\/+|\/+$/g, '')}`
+}
+
+/** The route of the link that opened the app, and of each link after it. */
+function useRoute(): string {
+  const [route, setRoute] = useState('/')
+  useEffect(() => {
+    void Linking.getInitialURL().then((url) => setRoute(routeOf(url)))
+    const subscription = Linking.addEventListener('url', ({ url }) =>
+      setRoute(routeOf(url)),
+    )
+    return () => subscription.remove()
+  }, [])
+  return route
+}
 
 export default function App() {
+  const route = useRoute()
+  const pattern = patternOf(route)
   return (
     <SafeAreaProvider>
-      <Screen />
-      <LoupeProbe route="/" />
+      {pattern ? <PatternScreen {...pattern} /> : <Screen />}
+      <LoupeProbe route={route} />
     </SafeAreaProvider>
   )
 }
