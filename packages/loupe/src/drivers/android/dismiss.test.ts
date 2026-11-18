@@ -328,6 +328,29 @@ describe('dismissAndroid', () => {
     })
     expect(sent()).toEqual(['input tap 540 1358'])
   })
+
+  it("closes Gboard's stylus sheet, whose keyboard source has no height", async () => {
+    // The smoke run on API 36: the field tap showed "Try out your stylus".
+    const smoke = (file: string) => recordedText(`api-36/smoke/${file}`)
+    const { target, sent } = emulator(
+      36,
+      [
+        smoke('keyboard-open.displays.txt'),
+        smoke('keyboard-before.displays.txt'),
+      ],
+      {
+        'shell dumpsys window windows': recorded(
+          'api-36/smoke/keyboard-open.windows.txt',
+        ),
+      },
+    )
+
+    expect(await dismissAndroid(await target(), EXPO_GO, FAST)).toEqual({
+      app: EXPO_GO,
+      closed: [closed('keyboard', 'back')],
+    })
+    expect(sent()).toEqual(['input keyevent KEYCODE_BACK'])
+  })
 })
 
 describe('systemLayerOf', () => {

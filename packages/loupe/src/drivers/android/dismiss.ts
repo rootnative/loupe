@@ -126,7 +126,11 @@ export function systemLayerOf(title: string): Layer | undefined {
 
 interface Screen {
   display: WindowDisplay
-  /** The keyboard has no window in focus: its inset source shows it. */
+  /**
+   * The keyboard has no window in focus: its inset source shows it. Only
+   * `visible` counts, not the frame: Gboard's "Try out your stylus" sheet
+   * fills the screen, and gives the source a frame of no height.
+   */
   keyboard: boolean
 }
 
@@ -144,8 +148,7 @@ async function readScreen(target: AndroidTarget): Promise<Screen> {
   return {
     display: windowDisplayOf(target, dump),
     keyboard: sources.some(
-      ({ type, visible, frame }) =>
-        IME_TYPES.has(type) && visible && frame.width > 0 && frame.height > 0,
+      ({ type, visible }) => IME_TYPES.has(type) && visible,
     ),
   }
 }
