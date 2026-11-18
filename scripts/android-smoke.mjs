@@ -332,92 +332,116 @@ function closedBy(result) {
 }
 
 /**
- * `dismiss` on the probe app's /sheets: nothing open (no key), the keyboard,
- * the notification shade over the share sheet (--all), and an alert. The
- * app counts each Back that reaches it, and must count none.
+ * Keeps the state of the screen as `<name>.*` in the output dir: the
+ * windows, the input method, the input devices, the settings, a dump and a
+ * screenshot. The emulator is a clean one, so the settings hold no one's
+ * data.
+ */
+function keepState(name) {
+  const keep = (file, ...args) => {
+    const result = spawnSync(ADB, args, {
+      encoding: 'utf8',
+      timeout: 60_000,
+      maxBuffer: 64 * 1024 * 1024,
+    })
+    writeFileSync(path.join(out, `${name}.${file}`), result.stdout ?? '')
+  }
+  keep('displays.txt', 'shell', 'dumpsys', 'window', 'displays')
+  keep('windows.txt', 'shell', 'dumpsys', 'window', 'windows')
+  keep('input-method.txt', 'shell', 'dumpsys', 'input_method')
+  keep('input.txt', 'shell', 'dumpsys', 'input')
+  keep('settings-secure.txt', 'shell', 'settings', 'list', 'secure')
+  keep('settings-global.txt', 'shell', 'settings', 'list', 'global')
+  keep('ui-tty.txt', 'exec-out', 'uiautomator', 'dump', '/dev/tty')
+  keepScreen(`${name}.png`)
+}
+
+/**
+ * `dismiss`, then a wait for a status line, as two commands: a wait that
+ * runs out must not drop the result of `dismiss`.
+ */
+function dismissThenWait(status, ...options) {
+  const result = loupe('dismiss', ...options, '--app', EXPO_GO)
+  const shown = loupe('wait', '--text', status, '--app', EXPO_GO).ok
+  return { result, shown }
+}
+
+/** Runs one check; when it fails, keeps the state of the screen. */
+function checkSheet(passed, what, name) {
+  check(passed, what)
+  if (!passed) keepState(`sheets-${name}`)
+}
+
+/**
+ * `dismiss` on the probe app's /sheets: nothing open (no key), the
+ * notification shade over the share sheet (--all), an alert, then the
+ * keyboard. The app counts each Back that reaches it, and must count none.
+ *
+ * The keyboard goes last: the field keeps the focus after it, and Android
+ * 11 shows the keyboard again each time the app gets the focus back. On
+ * API 36 a tap on the field once showed Gboard's "Try out your stylus"
+ * sheet in place of the keyboard, so that step keeps the state each time.
  */
 async function checkSheets() {
-  const before = failures
   loupe('open-url', `exp://127.0.0.1:${PORT}/--/sheets`, '--app', EXPO_GO)
   loupe('wait', '--id', 'backs', '--app', EXPO_GO)
 
   const nothing = loupe('dismiss', '--app', EXPO_GO)
-  check(
+  checkSheet(
     closedBy(nothing) === 'none',
     `dismiss with nothing open sends no key (${closedBy(nothing)})`,
-  )
-
-  loupe(
-    'tap',
-    '--id',
-    'field',
-    '--app',
-    EXPO_GO,
-    '--wait-text',
-    'keyboard shown',
-  )
-  const keyboard = loupe(
-    'dismiss',
-    '--app',
-    EXPO_GO,
-    '--wait-text',
-    'keyboard hidden',
-  )
-  check(
-    closedBy(keyboard) === 'keyboard/back',
-    `dismiss: the keyboard closes with Back (${closedBy(keyboard)})`,
+    'nothing',
   )
 
   loupe('tap', '--id', 'open-share', '--app', EXPO_GO)
   const share = await waitForFocus('ChooserActivity')
   adb('shell', 'cmd', 'statusbar', 'expand-notifications')
   const shade = await waitForFocus('NotificationShade')
-  const both = loupe(
-    'dismiss',
-    '--all',
-    '--app',
-    EXPO_GO,
-    '--wait-text',
-    'share sharedAction',
-  )
-  check(
+  const both = dismissThenWait('share sharedAction', '--all')
+  checkSheet(
     share.seen.includes('ChooserActivity') &&
       shade.seen.includes('NotificationShade') &&
-      closedBy(both) === 'notification-shade/collapse, share-sheet/back',
-    `dismiss --all: the shade, then the share sheet (${closedBy(both)})`,
+      closedBy(both.result) ===
+        'notification-shade/collapse, share-sheet/back' &&
+      both.shown,
+    `dismiss --all: the shade, then the share sheet (${closedBy(both.result)}; share sharedAction ${both.shown ? 'shows' : 'missing'})`,
+    'share',
   )
 
-  loupe(
-    'tap',
-    '--id',
-    'open-alert',
-    '--app',
-    EXPO_GO,
-    '--wait-text',
-    'Probe alert',
+  loupe('tap', '--id', 'open-alert', '--app', EXPO_GO)
+  loupe('wait', '--text', 'Probe alert', '--app', EXPO_GO)
+  const alert = dismissThenWait('alert dismissed')
+  checkSheet(
+    closedBy(alert.result) === 'app-dialog/back' && alert.shown,
+    `dismiss: the alert closes with Back (${closedBy(alert.result)}; alert dismissed ${alert.shown ? 'shows' : 'missing'})`,
+    'alert',
   )
-  const alert = loupe(
-    'dismiss',
-    '--app',
-    EXPO_GO,
-    '--wait-text',
-    'alert dismissed',
-  )
-  check(
-    closedBy(alert) === 'app-dialog/back',
-    `dismiss: the alert closes with Back (${closedBy(alert)})`,
+
+  keepState('keyboard-before')
+  loupe('tap', '--id', 'field', '--app', EXPO_GO)
+  const opened = loupe('wait', '--text', 'keyboard shown', '--app', EXPO_GO)
+  keepState('keyboard-open')
+  const keyboard = dismissThenWait('keyboard hidden')
+  checkSheet(
+    opened.ok &&
+      closedBy(keyboard.result) === 'keyboard/back' &&
+      keyboard.shown,
+    `dismiss: the keyboard closes with Back (keyboard shown ${opened.ok ? 'showed' : 'missing'}; ${closedBy(keyboard.result)}; keyboard hidden ${keyboard.shown ? 'shows' : 'missing'})`,
+    'keyboard',
   )
 
   const status = sheetStatus()
-  check(
+  checkSheet(
     status.backs === 'backs 0',
     `dismiss: no Back reached the app (${status.backs}; ${status.share}; ${status.alert})`,
+    'backs',
   )
-  if (failures > before) keepScreen('sheets.png')
 }
 
 adb('wait-for-device')
 await settle()
+// Before any touch: to compare with the state at the keyboard step.
+keepState('start')
 adb('shell', 'am', 'start', '-W', '-a', 'android.settings.SETTINGS')
 await sleep(2000)
 
