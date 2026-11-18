@@ -13,6 +13,7 @@ import {
   useSafeAreaInsets,
 } from 'react-native-safe-area-context'
 import { PatternScreen, patternOf } from './patterns'
+import { SheetsScreen } from './sheets'
 
 /**
  * The route of a link: `exp://127.0.0.1:8081/--/inset/defect` gives
@@ -67,6 +68,7 @@ export default function App() {
   if (route === '/appstate') {
     screen = <AppStateScreen states={states} links={links} />
   }
+  if (route === '/sheets') screen = <SheetsScreen />
   return (
     <SafeAreaProvider>
       {screen}

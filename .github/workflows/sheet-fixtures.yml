@@ -1,0 +1,79 @@
+name: Sheet fixtures
+
+# Records the sheets that `loupe dismiss` must close, on clean emulators: the
+# probe app in Expo Go with the share sheet, an alert, a modal, the keyboard
+# and the permission dialog, and the notification shade and the quick
+# settings. Each round opens one sheet, closes it one way (Back, a tap
+# outside, or a status bar collapse), and the script keeps the raw adb
+# output. Run it by hand when the commands need new output. Each API level
+# uploads one artifact.
+on:
+  workflow_dispatch:
+    inputs:
+      api-levels:
+        description: "API levels, as a JSON list"
+        required: true
+        default: "[30, 33, 34, 35, 36]"
+
+# The token only reads the repository.
+permissions:
+  contents: read
+
+jobs:
+  record:
+    name: Record (API ${{ matrix.api-level }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        api-level: ${{ fromJSON(inputs.api-levels) }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6.0.10
+
+      - name: Setup Node.js
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version-file: .nvmrc
+          cache: "pnpm"
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      # Metro loads the probe from its build output, and the script runs the
+      # built loupe CLI.
+      - name: Build
+        run: pnpm run build
+
+      # The emulator needs KVM. A Linux runner gives access to it only with
+      # this udev rule.
+      - name: Enable KVM
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+
+      # The same emulator as the other recordings.
+      - name: Record on an emulator
+        uses: reactivecircus/android-emulator-runner@a421e43855164a8197daf9d8d40fe71c6996bb0d # v2.38.0
+        with:
+          api-level: ${{ matrix.api-level }}
+          target: google_apis
+          arch: x86_64
+          profile: pixel_6
+          disable-animations: true
+          script: node scripts/record-sheets.mjs "${{ runner.temp }}/sheets/api-${{ matrix.api-level }}"
+
+      # A partial recording still helps, so it uploads after a failure too.
+      - name: Upload the recording
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@330a01c490aca151604b8cf639adc76d48f6c5d4 # v5.0.0
+        with:
+          name: sheets-api-${{ matrix.api-level }}
+          path: ${{ runner.temp }}/sheets/
+          retention-days: 14
+          if-no-files-found: error
