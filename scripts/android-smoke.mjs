@@ -5,8 +5,8 @@
 //
 // At the end it opens the probe app (apps/probe-app) in Expo Go, and checks
 // that the safe area of the probe is the system's in portrait and in both
-// landscapes. For that it downloads Expo Go from Expo, and starts Metro on
-// localhost.
+// landscapes, then the app switch and the sheets that `dismiss` closes. For
+// that it downloads Expo Go from Expo, and starts Metro on localhost.
 //
 // Run it on an emulator only, with the pixel_6 profile of the workflow, after
 // `pnpm install` and the build. Don't run it on a phone: it turns the screen,
@@ -279,6 +279,7 @@ async function checkProbeApp(metro) {
   )
   loupe('rotate', 'portrait')
   await checkAppState()
+  await checkSheets()
 }
 
 /** What the probe app shows on /appstate: its run, AppStates and links. */
@@ -312,6 +313,107 @@ async function checkAppState() {
     `background --for 1500: the probe app is back in the same run (${away.data?.back?.way ?? away.error?.code}; ${before.run}, ${before.states} → ${after.run}, ${after.states}; ${after.links})`,
   )
   if (!away.ok) keepScreen('background-expo-go.png')
+}
+
+/** The status lines of the probe app on /sheets. */
+function sheetStatus() {
+  const nodes = loupe('ui', '--app', EXPO_GO).data?.nodes ?? []
+  const text = (id) => findNode(nodes, (node) => node.id === id)?.text
+  return { share: text('share'), alert: text('alert'), backs: text('backs') }
+}
+
+/** The layers that `dismiss` closed, as `layer/way`, or its error code. */
+function closedBy(result) {
+  if (!result.ok) return result.error.code
+  return (
+    result.data.closed.map(({ layer, way }) => `${layer}/${way}`).join(', ') ||
+    'none'
+  )
+}
+
+/**
+ * `dismiss` on the probe app's /sheets: nothing open (no key), the keyboard,
+ * the notification shade over the share sheet (--all), and an alert. The
+ * app counts each Back that reaches it, and must count none.
+ */
+async function checkSheets() {
+  const before = failures
+  loupe('open-url', `exp://127.0.0.1:${PORT}/--/sheets`, '--app', EXPO_GO)
+  loupe('wait', '--id', 'backs', '--app', EXPO_GO)
+
+  const nothing = loupe('dismiss', '--app', EXPO_GO)
+  check(
+    closedBy(nothing) === 'none',
+    `dismiss with nothing open sends no key (${closedBy(nothing)})`,
+  )
+
+  loupe(
+    'tap',
+    '--id',
+    'field',
+    '--app',
+    EXPO_GO,
+    '--wait-text',
+    'keyboard shown',
+  )
+  const keyboard = loupe(
+    'dismiss',
+    '--app',
+    EXPO_GO,
+    '--wait-text',
+    'keyboard hidden',
+  )
+  check(
+    closedBy(keyboard) === 'keyboard/back',
+    `dismiss: the keyboard closes with Back (${closedBy(keyboard)})`,
+  )
+
+  loupe('tap', '--id', 'open-share', '--app', EXPO_GO)
+  const share = await waitForFocus('ChooserActivity')
+  adb('shell', 'cmd', 'statusbar', 'expand-notifications')
+  const shade = await waitForFocus('NotificationShade')
+  const both = loupe(
+    'dismiss',
+    '--all',
+    '--app',
+    EXPO_GO,
+    '--wait-text',
+    'share sharedAction',
+  )
+  check(
+    share.seen.includes('ChooserActivity') &&
+      shade.seen.includes('NotificationShade') &&
+      closedBy(both) === 'notification-shade/collapse, share-sheet/back',
+    `dismiss --all: the shade, then the share sheet (${closedBy(both)})`,
+  )
+
+  loupe(
+    'tap',
+    '--id',
+    'open-alert',
+    '--app',
+    EXPO_GO,
+    '--wait-text',
+    'Probe alert',
+  )
+  const alert = loupe(
+    'dismiss',
+    '--app',
+    EXPO_GO,
+    '--wait-text',
+    'alert dismissed',
+  )
+  check(
+    closedBy(alert) === 'app-dialog/back',
+    `dismiss: the alert closes with Back (${closedBy(alert)})`,
+  )
+
+  const status = sheetStatus()
+  check(
+    status.backs === 'backs 0',
+    `dismiss: no Back reached the app (${status.backs}; ${status.share}; ${status.alert})`,
+  )
+  if (failures > before) keepScreen('sheets.png')
 }
 
 adb('wait-for-device')
@@ -439,6 +541,14 @@ const web = loupe('open-url', 'https://example.com')
 check(
   web.ok && typeof web.data.activity === 'string',
   'open-url: a web link opens',
+)
+
+// The browser isn't a layer over Settings: no Back into it.
+const other = loupe('dismiss', '--app', SETTINGS)
+check(
+  other.error?.code === 'app_not_in_front' &&
+    other.error.message.includes(`loupe foreground ${SETTINGS}`),
+  `dismiss: no key into another app, and a pointer to foreground (${other.error?.code ?? 'ok'})`,
 )
 
 // The browser is in front, so Settings isn't the most recent task: the way

@@ -10,6 +10,7 @@ import {
   parseUiautomatorDump,
   parseWindowDisplays,
   parseWindowInsets,
+  parseWindowList,
 } from './parse'
 import { type XmlElement } from './xml'
 
@@ -73,7 +74,79 @@ describe.each(API_LEVELS)('the parsers, on the output of API %i', (level) => {
       appOrientation: 'SCREEN_ORIENTATION_UNSPECIFIED',
       focus:
         'com.android.settings/com.android.settings.homepage.SettingsHomepageActivity',
+      focusId: expect.stringMatching(/^[0-9a-f]+$/),
     })
+  })
+
+  it("read the focus of an app's dialog: the app's title, another window", () => {
+    const main = parseWindowDisplays(
+      recordedText(
+        `${api}/sheets/alert/back/before.dumpsys-window-displays.txt`,
+      ),
+    )
+    const dialog = parseWindowDisplays(
+      recordedText(`${api}/sheets/alert/back/open.dumpsys-window-displays.txt`),
+    )
+    const windows = parseWindowList(
+      recordedText(`${api}/sheets/alert/back/open.dumpsys-window-windows.txt`),
+    )
+    const byId = (id?: string) => windows.find((window) => window.id === id)
+
+    expect(dialog?.focus).toBe(main?.focus)
+    expect(dialog?.focusId).not.toBe(main?.focusId)
+    expect(byId(main?.focusId)).toEqual({
+      id: main?.focusId,
+      title: main?.focus,
+      package: 'host.exp.exponent',
+      type: 'BASE_APPLICATION',
+    })
+    expect(byId(dialog?.focusId)).toMatchObject({
+      package: 'host.exp.exponent',
+      type: 'APPLICATION',
+    })
+    expect(
+      windows.find((window) => window.title === 'NotificationShade'),
+    ).toMatchObject({
+      package: 'com.android.systemui',
+      type: level <= 34 ? '2040' : 'NOTIFICATION_SHADE',
+    })
+  })
+
+  it('read the keyboard in the insets, and each source after it hid', () => {
+    const keyboard = (when: string) =>
+      parseWindowInsets(
+        recordedText(
+          `${api}/sheets/keyboard/back/${when}.dumpsys-window-displays.txt`,
+        ),
+      )?.sources ?? []
+    const ime = level <= 33 ? 'ITYPE_IME' : 'ime'
+    const navigation = level <= 33 ? 'ITYPE_NAVIGATION_BAR' : 'navigationBars'
+
+    expect(keyboard('open')).toContainEqual(
+      expect.objectContaining({
+        type: ime,
+        frame: {
+          x: 0,
+          y: level === 30 ? 1533 : 1517,
+          width: 1080,
+          height: level === 30 ? 867 : 883,
+        },
+        visible: true,
+      }),
+    )
+    // Once shown, the keyboard's line has a `visibleFrame=`. On API 34 and
+    // later it sits before the navigation bar.
+    const after = keyboard('after')
+    expect(after).toContainEqual(
+      expect.objectContaining({
+        type: ime,
+        frame: { x: 0, y: 0, width: 0, height: 0 },
+        visible: false,
+      }),
+    )
+    expect(after).toContainEqual(
+      expect.objectContaining({ type: navigation, visible: true }),
+    )
   })
 
   it('read the display under the launcher, which holds portrait', () => {
@@ -160,7 +233,10 @@ describe('parseWindowDisplays', () => {
       '    mRotation=0 mDeferredRotationPauseCount=0',
     ].join('\n')
 
-    expect(parseWindowDisplays(text)?.focus).toBe(focus)
+    expect(parseWindowDisplays(text)).toMatchObject({
+      focus,
+      focusId: focus === undefined ? undefined : '1a2b3c',
+    })
   })
 
   it('reads the focus of the display that has the id', () => {
@@ -294,6 +370,32 @@ describe('parseWindowInsets', () => {
       cutout: { top: 0, right: 0, bottom: 0, left: 0 },
       cutoutRects: [],
     })
+  })
+})
+
+describe('parseWindowList', () => {
+  it('gives the windows from the top', () => {
+    const windows = parseWindowList(
+      recordedText('api-36/sheets/alert/back/open.dumpsys-window-windows.txt'),
+    )
+
+    expect(windows[0]).toEqual({
+      id: 'c1c520a',
+      title: 'ScreenDecorOverlayBottom',
+      package: 'com.android.systemui',
+      type: 'NAVIGATION_BAR_PANEL',
+    })
+    expect(windows.map((window) => window.type).slice(7, 10)).toEqual([
+      'APPLICATION',
+      'INPUT_METHOD',
+      'BASE_APPLICATION',
+    ])
+  })
+
+  it('gives no window for text with none', () => {
+    expect(
+      parseWindowList('WINDOW MANAGER WINDOWS (dumpsys window windows)\n'),
+    ).toEqual([])
   })
 })
 

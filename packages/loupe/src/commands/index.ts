@@ -2,6 +2,7 @@ import { createRegistry } from '../core/command'
 import { backgroundCommand } from './background'
 import { checkCommand } from './check'
 import { devicesCommand } from './devices'
+import { dismissCommand } from './dismiss'
 import { doubleTapCommand } from './double-tap'
 import { dragCommand } from './drag'
 import { foregroundCommand } from './foreground'
@@ -26,6 +27,7 @@ export const registry = createRegistry([
   backgroundCommand,
   checkCommand,
   devicesCommand,
+  dismissCommand,
   doubleTapCommand,
   dragCommand,
   foregroundCommand,

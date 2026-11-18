@@ -39,22 +39,28 @@ function notInFront(
   )
 }
 
-/**
- * Reads the display, and checks that `app` is in front. A real device needs
- * `app`, because it can show the user's other apps. On an emulator with no
- * `app`, there's no check.
- */
-export async function readInFront(
+/** A real device needs `app`, because it can show the user's other apps. */
+export function requireAppOnDevice(
   target: AndroidTarget,
   app: string | undefined,
-): Promise<WindowDisplay> {
+): void {
   if (!app && target.kind === 'device') {
     throw new LoupeError(
       'invalid_input',
       `${target.serial} is a real device, so loupe needs the "app" option: the package of the app under test. Then loupe works only while that app is in front.`,
     )
   }
+}
 
+/**
+ * Reads the display, and checks that `app` is in front (see
+ * `requireAppOnDevice`). On an emulator with no `app`, there's no check.
+ */
+export async function readInFront(
+  target: AndroidTarget,
+  app: string | undefined,
+): Promise<WindowDisplay> {
+  requireAppOnDevice(target, app)
   const display = await readWindowDisplay(target)
   if (app && !isAppWindow(display.focus, app)) {
     throw notInFront(target, app, display)

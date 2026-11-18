@@ -6,7 +6,11 @@ import { type Rect, rectFromPixels } from '../../core/units'
 import { type AndroidTarget } from './devices'
 import { toDisplayState } from './display'
 import { whileInFront } from './foreground'
-import { parseUiautomatorDump, type UiautomatorDump } from './parse'
+import {
+  parseUiautomatorDump,
+  type UiautomatorDump,
+  type WindowDisplay,
+} from './parse'
 import { type XmlElement } from './xml'
 
 const BOUNDS = /^\[(-?\d+),(-?\d+)\]\[(-?\d+),(-?\d+)\]$/
@@ -132,8 +136,32 @@ export async function readAndroidUi(
   app?: string,
 ): Promise<AndroidUi> {
   const { value: output, display } = await whileInFront(target, app, () =>
-    target.adb.text(['exec-out', 'uiautomator', 'dump', '/dev/tty']),
+    dumpTree(target),
   )
+  return treeOf(target, output, display)
+}
+
+/**
+ * Reads the tree with no foreground check. Use it only for a window that
+ * loupe knows by its focus, such as a system dialog, which has no app to
+ * check.
+ */
+export async function readWindowTree(
+  target: AndroidTarget,
+  display: WindowDisplay,
+): Promise<AndroidUi> {
+  return treeOf(target, await dumpTree(target), display)
+}
+
+function dumpTree(target: AndroidTarget): Promise<string> {
+  return target.adb.text(['exec-out', 'uiautomator', 'dump', '/dev/tty'])
+}
+
+function treeOf(
+  target: AndroidTarget,
+  output: string,
+  display: WindowDisplay,
+): AndroidUi {
   const dump = readDump(target, output)
 
   if (dump.rotation !== undefined && dump.rotation !== display.rotation) {

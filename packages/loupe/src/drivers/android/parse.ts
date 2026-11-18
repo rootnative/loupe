@@ -27,6 +27,11 @@ export interface WindowDisplay {
    * it, for example when the screen is off.
    */
   focus?: string
+  /**
+   * The id of the window that has the focus: the hash in `Window{…}`. A
+   * dialog of an app has the title of the app's window, but its own id.
+   */
+  focusId?: string
 }
 
 const FIELD = /^([a-z_]+):(\S*)$/
@@ -122,6 +127,7 @@ export function parseWindowDisplays(
   const current = /\bcur=(\d+)x(\d+)/.exec(sizeLine)
   const rotation = /\bmRotation=(\d)\b/.exec(block)
   if (!natural || !current || !rotation) return undefined
+  const focus = /^\s*mCurrentFocus=Window\{(\S+) u\d+ (.+)\}\s*$/m.exec(block)
 
   return {
     natural: { width: Number(natural[1]), height: Number(natural[2]) },
@@ -129,8 +135,48 @@ export function parseWindowDisplays(
     current: { width: Number(current[1]), height: Number(current[2]) },
     rotation: Number(rotation[1]),
     appOrientation: /\bmCurrentAppOrientation=([A-Z_]+)/.exec(block)?.[1],
-    focus: /^\s*mCurrentFocus=Window\{\S+ u\d+ (.+)\}\s*$/m.exec(block)?.[1],
+    focus: focus?.[2],
+    focusId: focus?.[1],
   }
+}
+
+/** One window of `dumpsys window windows`. */
+export interface WindowEntry {
+  /** The hash in `Window{…}`, as `mCurrentFocus` shows it. */
+  id: string
+  title: string
+  /** The package that owns the window. */
+  package?: string
+  /**
+   * The window type, for example `BASE_APPLICATION` for an activity,
+   * `APPLICATION` for a dialog of an app. A type with no name shows as a
+   * number: the notification shade is `2040` up to API 34.
+   */
+  type?: string
+}
+
+/**
+ * Reads `dumpsys window windows`: each window from the top, with the
+ * `package=` and the `ty=` of its block. The dump has no focus line: the
+ * focus comes from `dumpsys window displays`.
+ */
+export function parseWindowList(text: string): WindowEntry[] {
+  return text
+    .split(/\n(?=\s*Window #\d+ Window\{)/)
+    .flatMap((block): WindowEntry[] => {
+      const header = /^\s*Window #\d+ Window\{(\S+) u\d+ (.+)\}:\s*$/m.exec(
+        block,
+      )
+      if (!header) return []
+      return [
+        {
+          id: header[1] ?? '',
+          title: header[2] ?? '',
+          package: /\bpackage=(\S+)/.exec(block)?.[1],
+          type: /\bty=(\w+)/.exec(block)?.[1],
+        },
+      ]
+    })
 }
 
 export interface InsetSource {
@@ -151,8 +197,10 @@ export interface WindowInsetsDump {
   cutoutRects: Rect[]
 }
 
+// A source that has been shown once, such as the keyboard, adds its
+// `visibleFrame=` before `visible=`.
 const INSET_SOURCE =
-  /^\s+InsetsSource (?:id=\S+ )?type=(\S+) frame=\[(-?\d+),(-?\d+)\]\[(-?\d+),(-?\d+)\] visible=(true|false)(?:.*\bsideHint=([A-Z]+))?/
+  /^\s+InsetsSource (?:id=\S+ )?type=(\S+) frame=\[(-?\d+),(-?\d+)\]\[(-?\d+),(-?\d+)\](?: visibleFrame=\S+)? visible=(true|false)(?:.*\bsideHint=([A-Z]+))?/
 // API 30 wraps it: mDisplayCutout=WmDisplayCutout{DisplayCutout{insets=…
 const CUTOUT_INSETS =
   /mDisplayCutout=\S*?DisplayCutout\{insets=Rect\((-?\d+), (-?\d+) - (-?\d+), (-?\d+)\)/

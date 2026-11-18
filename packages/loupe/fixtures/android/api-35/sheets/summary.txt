@@ -1,0 +1,84 @@
+nothing/back
+  app: host.exp.exponent/host.exp.exponent.experience.ExperienceActivity
+  open: host.exp.exponent/host.exp.exponent.experience.ExperienceActivity (focus unchanged)
+  after: host.exp.exponent/host.exp.exponent.experience.ExperienceActivity (45 ms)
+  before: share none; alert none; modal none; permission none; keyboard none; backs 0
+  after: share none; alert none; modal none; permission none; keyboard none; backs 1
+share/back
+  app: host.exp.exponent/host.exp.exponent.experience.ExperienceActivity
+  open: com.android.intentresolver/com.android.intentresolver.ChooserActivityLauncher (352 ms)
+  after: host.exp.exponent/host.exp.exponent.experience.ExperienceActivity (175 ms)
+  before: share none; alert none; modal none; permission none; keyboard none; backs 1
+  after: share sharedAction; alert none; modal none; permission none; keyboard none; backs 1
+share/outside
+  app: host.exp.exponent/host.exp.exponent.experience.ExperienceActivity
+  open: com.android.intentresolver/com.android.intentresolver.ChooserActivityLauncher (61 ms)
+  after: host.exp.exponent/host.exp.exponent.experience.ExperienceActivity (103 ms)
+  before: share sharedAction; alert none; modal none; permission none; keyboard none; backs 1
+  after: share sharedAction; alert none; modal none; permission none; keyboard none; backs 1
+alert/back
+  app: host.exp.exponent/host.exp.exponent.experience.ExperienceActivity
+  open: host.exp.exponent/host.exp.exponent.experience.ExperienceActivity (focus unchanged)
+  after: host.exp.exponent/host.exp.exponent.experience.ExperienceActivity (116 ms)
+  before: share sharedAction; alert none; modal none; permission none; keyboard none; backs 1
+  after: share sharedAction; alert dismissed; modal none; permission none; keyboard none; backs 1
+alert/outside
+  app: host.exp.exponent/host.exp.exponent.experience.ExperienceActivity
+  open: host.exp.exponent/host.exp.exponent.experience.ExperienceActivity (focus unchanged)
+  after: host.exp.exponent/host.exp.exponent.experience.ExperienceActivity (110 ms)
+  before: share sharedAction; alert dismissed; modal none; permission none; keyboard none; backs 1
+  after: share sharedAction; alert dismissed; modal none; permission none; keyboard none; backs 1
+modal/back
+  app: host.exp.exponent/host.exp.exponent.experience.ExperienceActivity
+  open: host.exp.exponent/host.exp.exponent.experience.ExperienceActivity (focus unchanged)
+  after: host.exp.exponent/host.exp.exponent.experience.ExperienceActivity (27 ms)
+  before: share sharedAction; alert dismissed; modal none; permission none; keyboard none; backs 1
+  after: share sharedAction; alert dismissed; modal closed by back; permission none; keyboard none; backs 1
+modal/outside
+  app: host.exp.exponent/host.exp.exponent.experience.ExperienceActivity
+  open: host.exp.exponent/host.exp.exponent.experience.ExperienceActivity (focus unchanged)
+  after: host.exp.exponent/host.exp.exponent.experience.ExperienceActivity (24 ms)
+  before: share sharedAction; alert dismissed; modal closed by back; permission none; keyboard none; backs 1
+  after: share sharedAction; alert dismissed; modal closed by outside; permission none; keyboard none; backs 1
+shade/back
+  app: host.exp.exponent/host.exp.exponent.experience.ExperienceActivity
+  open: NotificationShade (728 ms)
+  after: host.exp.exponent/host.exp.exponent.experience.ExperienceActivity (84 ms)
+  before: share sharedAction; alert dismissed; modal closed by outside; permission none; keyboard none; backs 1
+  after: share sharedAction; alert dismissed; modal closed by outside; permission none; keyboard none; backs 1
+shade/collapse
+  app: host.exp.exponent/host.exp.exponent.experience.ExperienceActivity
+  open: NotificationShade (395 ms)
+  after: host.exp.exponent/host.exp.exponent.experience.ExperienceActivity (53 ms)
+  before: share sharedAction; alert dismissed; modal closed by outside; permission none; keyboard none; backs 1
+  after: share sharedAction; alert dismissed; modal closed by outside; permission none; keyboard none; backs 1
+quick-settings/back
+  app: host.exp.exponent/host.exp.exponent.experience.ExperienceActivity
+  open: NotificationShade (468 ms)
+  after: NotificationShade (app not back)
+  before: share sharedAction; alert dismissed; modal closed by outside; permission none; keyboard none; backs 1
+  after: none; none; none; none; none; none
+quick-settings/collapse
+  app: host.exp.exponent/host.exp.exponent.experience.ExperienceActivity
+  open: NotificationShade (433 ms)
+  after: host.exp.exponent/host.exp.exponent.experience.ExperienceActivity (143 ms)
+  before: share none; alert none; modal none; permission none; keyboard none; backs 0
+  after: share none; alert none; modal none; permission none; keyboard none; backs 0
+keyboard/back
+  app: host.exp.exponent/host.exp.exponent.experience.ExperienceActivity
+  open: host.exp.exponent/host.exp.exponent.experience.ExperienceActivity (focus unchanged)
+  after: host.exp.exponent/host.exp.exponent.experience.ExperienceActivity (88 ms)
+  before: share none; alert none; modal none; permission none; keyboard none; backs 0
+  after: share none; alert none; modal none; permission none; keyboard hidden; backs 0
+permission/back
+  app: host.exp.exponent/host.exp.exponent.experience.ExperienceActivity
+  open: com.google.android.permissioncontroller/com.android.permissioncontroller.permission.ui.GrantPermissionsActivity (355 ms)
+  after: host.exp.exponent/host.exp.exponent.experience.ExperienceActivity (73 ms)
+  before: share none; alert none; modal none; permission none; keyboard none; backs 0
+  after: share none; alert none; modal none; permission asked; keyboard none; backs 0
+permission/outside
+  app: host.exp.exponent/host.exp.exponent.experience.ExperienceActivity
+  open: com.google.android.permissioncontroller/com.android.permissioncontroller.permission.ui.GrantPermissionsActivity (106 ms)
+  after: com.google.android.permissioncontroller/com.android.permissioncontroller.permission.ui.GrantPermissionsActivity (app not back)
+  before: share none; alert none; modal none; permission asked; keyboard none; backs 0
+  after: none; none; none; none; none; none

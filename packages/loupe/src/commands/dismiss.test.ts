@@ -1,0 +1,86 @@
+import { describe, expect, it } from 'vitest'
+import { run } from '../cli/run'
+import { byCommand, fakeContext } from '../testing/fake-exec'
+import { recorded, recordedText } from '../testing/fixtures'
+import { registry } from './index'
+
+const ADB = 'adb -s emulator-5554'
+const SHEETS = 'api-36/sheets/alert/back'
+const MAIN = recordedText(`${SHEETS}/before.dumpsys-window-displays.txt`)
+const DIALOG = recordedText(`${SHEETS}/open.dumpsys-window-displays.txt`)
+const SHADE = MAIN.replace(
+  /mCurrentFocus=Window\{\S+ u0 [^}]+\}/,
+  'mCurrentFocus=Window{5e7a11 u0 NotificationShade}',
+)
+
+/** An API 36 emulator with Expo Go (round 8), and these display dumps. */
+function emulator(displays: readonly string[]) {
+  const { context } = fakeContext(
+    byCommand({
+      'adb devices -l': recorded('api-36/host/adb-devices-l.txt'),
+      [`${ADB} shell getprop`]: recorded('api-36/device/getprop.txt'),
+      [`${ADB} shell dumpsys window displays`]: displays.map((stdout) => ({
+        stdout,
+      })),
+      [`${ADB} shell dumpsys window windows`]: recorded(
+        `${SHEETS}/open.dumpsys-window-windows.txt`,
+      ),
+      [`${ADB} shell input keyevent KEYCODE_BACK`]: {},
+      [`${ADB} shell cmd statusbar collapse`]: {},
+    }),
+  )
+  return context
+}
+
+async function cli(args: string[], displays: readonly string[], isTTY = true) {
+  const out: string[] = []
+  const errors: string[] = []
+  const io = {
+    out: (text: string) => out.push(text),
+    err: (text: string) => errors.push(text),
+    isTTY,
+  }
+  const code = await run(args, io, registry, emulator(displays))
+  return { code, out: out.join('\n'), errors: errors.join('\n') }
+}
+
+describe('dismiss', () => {
+  it('says when nothing was open', async () => {
+    expect(
+      await cli(['dismiss', '--app', 'host.exp.exponent'], [MAIN]),
+    ).toEqual({
+      code: 0,
+      out: 'Nothing is open over host.exp.exponent: loupe sent no key.',
+      errors: '',
+    })
+  })
+
+  it('names what it closed, and the layer that shows now', async () => {
+    const { code, out } = await cli(['dismiss'], [SHADE, DIALOG])
+
+    expect(code).toBe(0)
+    expect(out).toMatch(
+      /^Closed the notification shade with a status bar collapse \(\d+ ms\)\. The app's dialog shows now: run dismiss again, or dismiss --all\.$/,
+    )
+  })
+
+  it('closes each layer with --all, and gives each one', async () => {
+    const { code, out } = await cli(
+      ['dismiss', '--all', '--app', 'host.exp.exponent'],
+      [SHADE, DIALOG, MAIN],
+      false,
+    )
+
+    expect(code).toBe(0)
+    expect(JSON.parse(out)).toMatchObject({
+      ok: true,
+      data: {
+        app: 'host.exp.exponent',
+        closed: [
+          { layer: 'notification-shade', way: 'collapse' },
+          { layer: 'app-dialog', way: 'back' },
+        ],
+      },
+    })
+  })
+})
