@@ -403,9 +403,9 @@ function checkSheet(passed, what, name) {
  * keyboard. The app counts each Back that reaches it, and must count none.
  *
  * The keyboard goes last: the field keeps the focus after it, and Android
- * 11 shows the keyboard again each time the app gets the focus back. On
- * API 36 a tap on the field once showed Gboard's "Try out your stylus"
- * sheet in place of the keyboard, so that step keeps the state each time.
+ * 11 shows the keyboard again each time the app gets the focus back. That
+ * step keeps the state each time: it needs the plain keyboard, see
+ * `stylus_handwriting_enabled` below.
  */
 async function checkSheets() {
   loupe('open-url', `exp://127.0.0.1:${PORT}/--/sheets`, '--app', EXPO_GO)
@@ -467,6 +467,11 @@ adb('wait-for-device')
 await settle()
 // Before any touch: to compare with the state at the keyboard step.
 keepState('start')
+// The touches of the emulator console come from a device with a STYLUS
+// source. After them, Gboard on API 35+ shows its "Try out your stylus"
+// sheet and a handwriting toolbar in place of the keyboard, and the Back
+// that closes the toolbar also reaches the app.
+adb('shell', 'settings', 'put', 'secure', 'stylus_handwriting_enabled', '0')
 adb('shell', 'am', 'start', '-W', '-a', 'android.settings.SETTINGS')
 await sleep(2000)
 
