@@ -1,18 +1,23 @@
 name: Stylus fixtures
 
-# Records Gboard's "Try out your stylus" sheet, which a tap on a text field
-# can show in place of the keyboard, on clean emulators: the probe app in Expo
-# Go, the field tapped at several points of one run, and each way to close the
-# sheet (the Escape key, a tap above it, a tap on its Cancel button, the Back
-# key). The script keeps the raw adb output. Run it by hand when the commands
-# need new output. Each API level uploads one artifact.
+# Records what starts Gboard's stylus mode (a "Try out your stylus" sheet and
+# a handwriting toolbar in place of the keyboard), and what closes it, on
+# clean emulators: one job per API level and gesture, the field of the probe
+# app in Expo Go tapped before the gesture and after it, and each way to
+# close what shows (the Escape key, a tap on the sheet's Cancel button, the
+# Back key). The script keeps the raw adb output. Run it by hand when the
+# commands need new output. Each job uploads one artifact.
 on:
   workflow_dispatch:
     inputs:
       api-levels:
         description: "API levels, as a JSON list"
         required: true
-        default: "[34, 35, 36]"
+        default: "[35, 36]"
+      gestures:
+        description: "Gestures, as a JSON list"
+        required: true
+        default: '["none", "double-tap", "drag", "pinch", "finger"]'
 
 # The token only reads the repository.
 permissions:
@@ -20,13 +25,14 @@ permissions:
 
 jobs:
   record:
-    name: Record (API ${{ matrix.api-level }})
+    name: Record (API ${{ matrix.api-level }}, ${{ matrix.gesture }})
     runs-on: ubuntu-latest
     timeout-minutes: 45
     strategy:
       fail-fast: false
       matrix:
         api-level: ${{ fromJSON(inputs.api-levels) }}
+        gesture: ${{ fromJSON(inputs.gestures) }}
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -65,14 +71,14 @@ jobs:
           arch: x86_64
           profile: pixel_6
           disable-animations: true
-          script: node scripts/record-stylus.mjs "${{ runner.temp }}/stylus/api-${{ matrix.api-level }}"
+          script: node scripts/record-stylus.mjs "${{ runner.temp }}/stylus/api-${{ matrix.api-level }}/${{ matrix.gesture }}" ${{ matrix.gesture }}
 
       # A partial recording still helps, so it uploads after a failure too.
       - name: Upload the recording
         if: ${{ !cancelled() }}
         uses: actions/upload-artifact@330a01c490aca151604b8cf639adc76d48f6c5d4 # v5.0.0
         with:
-          name: stylus-api-${{ matrix.api-level }}
+          name: stylus-api-${{ matrix.api-level }}-${{ matrix.gesture }}
           path: ${{ runner.temp }}/stylus/
           retention-days: 14
           if-no-files-found: error

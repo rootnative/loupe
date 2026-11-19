@@ -1,33 +1,33 @@
-// Records Gboard's "Try out your stylus" sheet, and what each way to close it
-// does. In the smoke run on API 36, a tap on the field of the probe app's
-// /sheets route showed that sheet in place of the keyboard: the keyboard's
-// window filled the screen, its inset source was visible with no height, and
-// the Back that closed it also reached the app.
+// Records what starts Gboard's stylus mode, and what closes it (round 9b).
+// Round 9 showed that after loupe's touches through the emulator console,
+// Gboard on API 35 and 36 shows a "Try out your stylus" sheet, and under it
+// a handwriting toolbar in place of the keyboard: the keyboard's inset
+// source is visible with little or no height, and the Back that closes the
+// toolbar also reaches the app. The console touches come from a device with
+// a STYLUS source.
 //
-// One run taps the field at these points, and records what shows each time
-// (the keyboard, the sheet, or nothing):
+// One run makes one gesture, so each gesture has its own clean emulator:
 //
-// - fresh: first, before any other touch;
-// - after-browser: after a web link opened the browser, as the smoke run does;
-// - after-gestures: after a double-tap, a drag and a pinch through the
-//   emulator console on the home screen, as the smoke run does;
-// - again-1, again-2: two more taps, to see if the sheet comes back;
-// - stylus-off: with `stylus_handwriting_enabled` set to 0 first.
+// - none: no gesture, to rule out the time since the boot;
+// - double-tap, drag, pinch: that loupe command, on the home screen;
+// - finger: a drag and a pinch through the console from this script, with
+//   `ABS_MT_TOOL_TYPE` 0 (a finger) on each pointer.
 //
-// While the sheet shows, it tries each way in turn until the keyboard is
-// gone: escape (the Escape key), outside (a tap above the sheet), cancel (a
-// tap where the sheet has its Cancel button), back (the Back key). Each new
-// sheet starts one way further on. The keyboard closes with Back. After each
-// try it keeps the display dump, the input method state, a dump and a
-// screenshot; the probe app counts each Back that reaches it. The "Stylus
-// fixtures" workflow runs it in CI.
+// It taps the field of the probe app's /sheets route once before the
+// gesture (fresh) and three times after it (after-1 to after-3), and records
+// what shows each time: the keyboard, the stylus mode, or nothing. Then it
+// tries each way in turn until the keyboard's inset source is gone. On the
+// keyboard: escape (the Escape key), then back (the Back key). In stylus
+// mode: escape, cancel (a tap on the sheet's Cancel button), escape again,
+// then back. After each try it keeps the display dump, the input method
+// state, a dump and a screenshot; the probe app counts each Back that
+// reaches it. The "Stylus fixtures" workflow runs it in CI.
 //
 // Run it from the root of the repository, after `pnpm install` and the
 // build, on one booted emulator with a clean system image. Don't run it on a
-// phone: it installs Expo Go, starts Metro, opens the browser, and changes a
-// secure setting.
+// phone: it installs Expo Go and starts Metro.
 //
-// Usage: node scripts/record-stylus.mjs <out-dir>
+// Usage: node scripts/record-stylus.mjs <out-dir> <gesture>
 // With more than one device, set ANDROID_SERIAL to the emulator first.
 
 import { mkdirSync, writeFileSync } from 'node:fs'
@@ -51,9 +51,12 @@ import {
   showRoute,
 } from './lib/recorder.mjs'
 
-const [out] = process.argv.slice(2)
-if (!out) {
-  console.error('Usage: node scripts/record-stylus.mjs <out-dir>')
+const GESTURES = ['none', 'double-tap', 'drag', 'pinch', 'finger']
+const [out, gesture] = process.argv.slice(2)
+if (!out || !GESTURES.includes(gesture)) {
+  console.error(
+    `Usage: node scripts/record-stylus.mjs <out-dir> <${GESTURES.join('|')}>`,
+  )
   process.exit(2)
 }
 mkdirSync(out, { recursive: true })
@@ -62,13 +65,18 @@ const ROUTE = '/sheets'
 const SHOW_LIMIT_MS = 5000
 const HIDE_LIMIT_MS = 3000
 const SETTLE_MS = 1500
-const WAYS = ['escape', 'outside', 'cancel', 'back']
+const KEYBOARD_WAYS = ['escape', 'back']
+const STYLUS_WAYS = ['escape', 'cancel', 'escape', 'back']
 // The Cancel button of the sheet, as a share of the screen (portrait), from
-// the smoke run's screenshot on API 36: x 600, y 2274 of 1080 × 2400.
-const CANCEL = { x: 600 / 1080, y: 2274 / 2400 }
+// the screenshots of round 9 (1080 × 2400): x 600; y 2274 on API 36 and 2210
+// on API 35, where the sheet sits higher. Only for a screen whose dump of
+// each window doesn't have the button.
+const CANCEL_X = 600 / 1080
+const CANCEL_Y = { 35: 2210 / 2400, default: 2274 / 2400 }
+// The emulator's touchscreen reports 0 to 32767 on each axis.
+const RAW_UNITS = 32768
 
 let failures = 0
-let nextWay = 0
 
 function fail(what) {
   failures += 1
@@ -90,9 +98,15 @@ function textOf(dump, id) {
   )
 }
 
+const SCREEN = screenSize()
+const API_LEVEL = Number(
+  adbText(['shell', 'getprop', 'ro.build.version.sdk']).trim(),
+)
+
 /**
- * What the keyboard's inset source shows: `keyboard` (visible, with a
- * height), `sheet` (visible, with no height: the stylus sheet), or `none`.
+ * What the keyboard's inset source shows: `keyboard` (visible, a fifth of
+ * the screen or more), `stylus` (visible and lower: the stylus sheet or the
+ * handwriting toolbar, 0 px on API 36 and 63 px on API 35), or `none`.
  */
 function keyboardOf(displays) {
   const start = displays.indexOf('WindowInsetsStateController')
@@ -100,8 +114,16 @@ function keyboardOf(displays) {
     /InsetsSource (?:id=\S+ )?type=(?:ime|ITYPE_IME) frame=\[-?\d+,(-?\d+)\]\[-?\d+,(-?\d+)\](?: visibleFrame=\S+)? visible=(true|false)/.exec(
       displays.slice(Math.max(0, start)),
     )
-  if (!match || match[3] !== 'true') return 'none'
-  return Number(match[2]) > Number(match[1]) ? 'keyboard' : 'sheet'
+  if (!match || match[3] !== 'true') return { kind: 'none', height: 0 }
+  const height = Number(match[2]) - Number(match[1])
+  return {
+    kind: height * 5 >= SCREEN.height ? 'keyboard' : 'stylus',
+    height,
+  }
+}
+
+function describe({ kind, height }) {
+  return kind === 'none' ? 'none' : `${kind} (${height} px)`
 }
 
 function readKeyboard() {
@@ -112,7 +134,7 @@ function readKeyboard() {
 async function keyboardUntil(done, limit) {
   const start = Date.now()
   let seen = readKeyboard()
-  while (!done(seen) && Date.now() - start < limit) {
+  while (!done(seen.kind) && Date.now() - start < limit) {
     await sleep(250)
     seen = readKeyboard()
   }
@@ -145,6 +167,39 @@ function keepState(dir, name, full = false) {
   return { dump, keyboard: keyboardOf(String(displays.stdout ?? '')) }
 }
 
+/**
+ * The middle of the sheet's Cancel button: from a dump of each window when
+ * it has the button (the plain dump has only the app's nodes), else from the
+ * screenshots of round 9.
+ */
+function cancelPoint(file) {
+  const windows = capture(`${file}.ui-windows.txt`, [
+    'exec-out',
+    'uiautomator',
+    'dump',
+    '--windows',
+    '/dev/tty',
+  ])
+  const bounds =
+    /text="Cancel"[^>]*bounds="\[(\d+),(\d+)\]\[(\d+),(\d+)\]"/.exec(
+      String(windows.stdout ?? ''),
+    )
+  if (bounds) {
+    const [left, top, right, bottom] = bounds.slice(1).map(Number)
+    return {
+      point: [Math.round((left + right) / 2), Math.round((top + bottom) / 2)],
+      from: 'the dump of each window',
+    }
+  }
+  return {
+    point: [
+      Math.round(SCREEN.width * CANCEL_X),
+      Math.round(SCREEN.height * (CANCEL_Y[API_LEVEL] ?? CANCEL_Y.default)),
+    ],
+    from: 'the screenshots of round 9',
+  }
+}
+
 function send(way, file) {
   switch (way) {
     case 'escape':
@@ -153,32 +208,18 @@ function send(way, file) {
     case 'back':
       capture(file, ['shell', 'input', 'keyevent', 'KEYCODE_BACK'])
       return
-    case 'outside':
     case 'cancel': {
-      const { width, height } = screenSize()
-      const point =
-        way === 'outside'
-          ? [Math.round(width / 2), Math.round(height * 0.2)]
-          : [Math.round(width * CANCEL.x), Math.round(height * CANCEL.y)]
-      writeFileSync(`${file}.point.txt`, `${point.join(' ')}\n`)
+      const { point, from } = cancelPoint(file)
+      writeFileSync(`${file}.point.txt`, `${point.join(' ')} from ${from}\n`)
       capture(file, ['shell', 'input', 'tap', ...point.map(String)])
       return
     }
   }
 }
 
-/** The ways to try on this sheet, from the next one in turn. */
-function waysForSheet() {
-  const start = nextWay % WAYS.length
-  nextWay += 1
-  const order = [...WAYS.slice(start), ...WAYS.slice(0, start)]
-  // Back last: it is known to close the sheet.
-  return [...order.filter((way) => way !== 'back'), 'back']
-}
-
 /**
- * Opens /sheets, taps the field, records what shows, and closes it: the
- * keyboard with Back, the sheet with each way in turn until it's gone.
+ * Opens /sheets, taps the field, records what shows, and tries each way to
+ * close it in turn until it's gone.
  */
 async function recordTap(name) {
   const dir = path.join(out, name)
@@ -195,41 +236,100 @@ async function recordTap(name) {
   const before = keepState(dir, 'before')
   const tap = loupe('tap', '--id', 'field', '--app', EXPO_GO)
   writeFileSync(path.join(dir, 'tap.json'), `${JSON.stringify(tap, null, 2)}\n`)
-  const opened = await keyboardUntil((seen) => seen !== 'none', SHOW_LIMIT_MS)
+  const opened = await keyboardUntil((kind) => kind !== 'none', SHOW_LIMIT_MS)
   await sleep(SETTLE_MS)
   const open = keepState(dir, 'open', true)
   const lines = [
     name,
-    `before: ${before.keyboard}, ${textOf(before.dump, 'backs')}`,
-    `open: ${open.keyboard} after ${opened.ms} ms, ${textOf(open.dump, 'keyboard')}, ${textOf(open.dump, 'backs')}`,
+    `before: ${describe(before.keyboard)}, ${textOf(before.dump, 'backs')}`,
+    `open: ${describe(open.keyboard)} after ${opened.ms} ms, ${textOf(open.dump, 'keyboard')}, ${textOf(open.dump, 'backs')}`,
   ]
 
-  const ways = open.keyboard === 'sheet' ? waysForSheet() : ['back']
+  const ways = open.keyboard.kind === 'stylus' ? STYLUS_WAYS : KEYBOARD_WAYS
   let state = open
   for (const [index, way] of ways.entries()) {
-    if (state.keyboard === 'none') break
+    if (state.keyboard.kind === 'none') break
     const file = path.join(dir, `${index + 1}-${way}.send.txt`)
     send(way, file)
-    const hidden = await keyboardUntil((seen) => seen === 'none', HIDE_LIMIT_MS)
+    const hidden = await keyboardUntil((kind) => kind === 'none', HIDE_LIMIT_MS)
     await sleep(SETTLE_MS)
     state = keepState(dir, `${index + 1}-${way}`)
     lines.push(
-      `${way}: ${state.keyboard} (${hidden.seen === 'none' ? `hidden after ${hidden.ms} ms` : 'not hidden'}), ${textOf(state.dump, 'keyboard')}, ${textOf(state.dump, 'backs')}`,
+      `${way}: ${describe(state.keyboard)} (${hidden.seen.kind === 'none' ? `hidden after ${hidden.ms} ms` : 'not hidden'}), ${textOf(state.dump, 'keyboard')}, ${textOf(state.dump, 'backs')}`,
     )
   }
-  if (state.keyboard !== 'none') fail(`${name}: the keyboard stayed open`)
+  if (state.keyboard.kind !== 'none') fail(`${name}: the keyboard stayed open`)
 
   const line = lines.join('\n  ')
   console.log(line)
   return line
 }
 
-/** The double-tap, drag and pinch of the smoke run, on the home screen. */
-async function consoleGestures(dir) {
+function rawUnit(pixels, size) {
+  return Math.min(Math.floor((pixels * RAW_UNITS) / size), RAW_UNITS - 1)
+}
+
+/** One call of the emulator console; gives its reply. */
+function consoleSend(events) {
+  return adbText(['emu', 'event', 'send', ...events]).trim()
+}
+
+/**
+ * Puts the fingers of the first step down, moves them through the next
+ * steps, and lifts them: loupe's console events, and `ABS_MT_TOOL_TYPE` 0
+ * on each pointer. Each finger is a point in px. Gives the console's replies.
+ */
+async function fingerGesture(steps) {
+  const position = ([x, y]) => [
+    `EV_ABS:ABS_MT_POSITION_X:${rawUnit(x, SCREEN.width)}`,
+    `EV_ABS:ABS_MT_POSITION_Y:${rawUnit(y, SCREEN.height)}`,
+  ]
+  const [first, ...next] = steps
+  const replies = [
+    consoleSend([
+      ...first.flatMap((finger, slot) => [
+        `EV_ABS:ABS_MT_SLOT:${slot}`,
+        `EV_ABS:ABS_MT_TRACKING_ID:${slot + 1}`,
+        'EV_ABS:ABS_MT_TOOL_TYPE:0',
+        ...position(finger),
+        'EV_ABS:ABS_MT_PRESSURE:50',
+      ]),
+      'EV_KEY:BTN_TOUCH:1',
+      'EV_SYN:0:0',
+    ]),
+  ]
+  for (const fingers of next) {
+    await sleep(40)
+    replies.push(
+      consoleSend([
+        ...fingers.flatMap((finger, slot) => [
+          `EV_ABS:ABS_MT_SLOT:${slot}`,
+          ...position(finger),
+        ]),
+        'EV_SYN:0:0',
+      ]),
+    )
+  }
+  await sleep(250)
+  replies.push(
+    consoleSend([
+      ...first.flatMap((_, slot) => [
+        `EV_ABS:ABS_MT_SLOT:${slot}`,
+        'EV_ABS:ABS_MT_TRACKING_ID:-1',
+      ]),
+      'EV_KEY:BTN_TOUCH:0',
+      'EV_SYN:0:0',
+    ]),
+  )
+  return replies
+}
+
+/** The gesture of this run on the home screen, as the smoke run makes it. */
+async function makeGesture(dir) {
   mkdirSync(dir, { recursive: true })
   loupe('key', 'home')
   await sleep(2000)
-  const { width, height } = screenSize()
+  const { width, height } = SCREEN
   const density = Number(
     /(?:Override|Physical) density: (\d+)/.exec(
       adbText(['shell', 'wm', 'density']),
@@ -237,15 +337,39 @@ async function consoleGestures(dir) {
   )
   const x = Math.round(width / 2 / (density / 160))
   const y = Math.round(height / 2 / (density / 160))
-  const results = [
-    loupe('double-tap', String(x), String(y)),
-    loupe('drag', String(x + 100), String(y), String(x - 100), String(y)),
-    loupe('pinch', String(x), String(y), '--scale', '2'),
-  ]
+  const steps = Array.from({ length: 9 }, (_, index) => index / 8)
+  const results = await (async () => {
+    switch (gesture) {
+      case 'double-tap':
+        return [loupe('double-tap', String(x), String(y))]
+      case 'drag':
+        return [
+          loupe('drag', String(x + 100), String(y), String(x - 100), String(y)),
+        ]
+      case 'pinch':
+        return [loupe('pinch', String(x), String(y), '--scale', '2')]
+      case 'finger':
+        return [
+          await fingerGesture(
+            steps.map((share) => [[width * (0.75 - share / 2), height / 2]]),
+          ),
+          await fingerGesture(
+            steps.map((share) => [
+              [width / 2, height * (0.4 - share / 10)],
+              [width / 2, height * (0.6 + share / 10)],
+            ]),
+          ),
+        ]
+      default:
+        return []
+    }
+  })()
   writeFileSync(
     path.join(dir, 'gestures.json'),
     `${JSON.stringify(results, null, 2)}\n`,
   )
+  await sleep(2000)
+  capture(path.join(dir, 'input.txt'), ['shell', 'dumpsys', 'input'])
 }
 
 capture(path.join(out, 'host/adb-devices-l.txt'), ['devices', '-l'])
@@ -271,7 +395,7 @@ capture(path.join(out, 'device/stylus-handwriting-at-start.txt'), [
 ])
 
 let metro
-const summary = []
+const summary = [`gesture: ${gesture}`]
 try {
   const sdk = await installExpoGo(ADB)
   console.log(`Expo Go for SDK ${sdk} is in.`)
@@ -291,34 +415,10 @@ try {
   ])
 
   summary.push(await recordTap('fresh'))
-
-  capture(path.join(out, 'after-browser/browser.txt'), [
-    'shell',
-    'am',
-    'start',
-    '-W',
-    '-a',
-    'android.intent.action.VIEW',
-    '-d',
-    'https://example.com',
-  ])
-  await sleep(5000)
-  summary.push(await recordTap('after-browser'))
-
-  await consoleGestures(path.join(out, 'after-gestures'))
-  summary.push(await recordTap('after-gestures'))
-  summary.push(await recordTap('again-1'))
-  summary.push(await recordTap('again-2'))
-
-  capture(path.join(out, 'stylus-off/setting.txt'), [
-    'shell',
-    'settings',
-    'put',
-    'secure',
-    'stylus_handwriting_enabled',
-    '0',
-  ])
-  summary.push(await recordTap('stylus-off'))
+  await makeGesture(path.join(out, 'gesture'))
+  summary.push(await recordTap('after-1'))
+  summary.push(await recordTap('after-2'))
+  summary.push(await recordTap('after-3'))
 } catch (error) {
   fail(error instanceof Error ? error.message : String(error))
 } finally {
