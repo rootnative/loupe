@@ -5,8 +5,9 @@
 //
 // At the end it opens the probe app (apps/probe-app) in Expo Go, and checks
 // that the safe area of the probe is the system's in portrait and in both
-// landscapes, then the app switch and the sheets that `dismiss` closes. For
-// that it downloads Expo Go from Expo, and starts Metro on localhost.
+// landscapes, then the theme, the app switch and the sheets that `dismiss`
+// closes. For that it downloads Expo Go from Expo, and starts Metro on
+// localhost.
 //
 // Run it on an emulator only, with the pixel_6 profile of the workflow, after
 // `pnpm install` and the build. Don't run it on a phone: it turns the screen,
@@ -278,8 +279,32 @@ async function checkProbeApp(metro) {
     'insets: the two landscapes mirror each other, and their sides differ',
   )
   loupe('rotate', 'portrait')
+  checkTheme()
   await checkAppState()
   await checkSheets()
+}
+
+/**
+ * `theme` on the probe app's first screen: dark, then light again, each
+ * shown by the probe's colour scheme. The emulator starts and ends light.
+ */
+function checkTheme() {
+  const dark = loupe('theme', 'dark', '--app', EXPO_GO)
+  const read = loupe('theme')
+  const light = loupe('theme', 'light', '--app', EXPO_GO)
+  const shown = (result) =>
+    result.ok
+      ? `${result.data.source}, ${result.data.ms} ms`
+      : result.error.code
+  check(
+    dark.data?.was === 'light' &&
+      dark.data.source === 'probe' &&
+      read.data?.theme === 'dark' &&
+      light.data?.was === 'dark' &&
+      light.data.source === 'probe',
+    `theme: dark (${shown(dark)}), then light (${shown(light)}), each shown by the probe`,
+  )
+  if (!dark.ok || !light.ok) keepScreen('theme.png')
 }
 
 /** What the probe app shows on /appstate: its run, AppStates and links. */

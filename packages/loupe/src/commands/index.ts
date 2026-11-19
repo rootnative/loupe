@@ -17,6 +17,7 @@ import { screenshotCommand } from './screenshot'
 import { scrollToCommand } from './scroll-to'
 import { swipeCommand } from './swipe'
 import { tapCommand } from './tap'
+import { themeCommand } from './theme'
 import { typeCommand } from './type'
 import { uiCommand } from './ui'
 import { versionCommand } from './version'
@@ -42,6 +43,7 @@ export const registry = createRegistry([
   scrollToCommand,
   swipeCommand,
   tapCommand,
+  themeCommand,
   typeCommand,
   uiCommand,
   versionCommand,

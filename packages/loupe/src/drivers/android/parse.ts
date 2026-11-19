@@ -327,6 +327,14 @@ export function parseAmStart(text: string): AmStart {
   }
 }
 
+/**
+ * Reads `cmd uimode night`, with or without a new value: `Night mode: no`.
+ * Gives the mode as Android names it: `no`, `yes`, `auto` or `custom`.
+ */
+export function parseNightMode(text: string): string | undefined {
+  return /^Night mode: (\w+)/m.exec(text)?.[1]
+}
+
 /** Reads `adb emu avd name`: the name, then "OK". */
 export function parseEmuAvdName(text: string): string | undefined {
   const [first = ''] = lines(text)

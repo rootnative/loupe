@@ -6,6 +6,7 @@ import {
   parseAvdList,
   parseEmuAvdName,
   parseGetprop,
+  parseNightMode,
   parseRecentTasks,
   parseUiautomatorDump,
   parseWindowDisplays,
@@ -110,6 +111,15 @@ describe.each(API_LEVELS)('the parsers, on the output of API %i', (level) => {
       package: 'com.android.systemui',
       type: level <= 34 ? '2040' : 'NOTIFICATION_SHADE',
     })
+  })
+
+  it('read the night mode, at the start and after each write', () => {
+    const night = (file: string) =>
+      parseNightMode(recordedText(`${api}/probe/${file}`))
+
+    expect(night('device/uimode-night-at-start.txt')).toBe('no')
+    expect(night('night/uimode-yes.txt')).toBe('yes')
+    expect(night('night/uimode-no.txt')).toBe('no')
   })
 
   it('read the keyboard in the insets, and each source after it hid', () => {
