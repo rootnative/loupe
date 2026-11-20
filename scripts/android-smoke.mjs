@@ -399,30 +399,29 @@ function checkSheet(passed, what, name) {
 
 /**
  * Gboard's stylus mode (API 35+, round 9b): stylus handwriting on again, a
- * drag through the console on the empty top of /sheets, /sheets opened
- * again, then the field. `dismiss --all` closes the "Try out your stylus"
- * sheet when it shows (a tap on Cancel), then the handwriting toolbar with
- * Escape, so no Back reaches the app: the step reads `backs` itself, as
- * the new open can start the count again. The setting stays on: this is
- * the last touch.
+ * drag through the console on the home screen, /sheets opened again, then
+ * the field. `dismiss --all` closes the "Try out your stylus" sheet when it
+ * shows (a tap on Cancel), then the handwriting toolbar with Escape, so no
+ * Back reaches the app: the step reads `backs` itself, as the new open can
+ * start the count again. The setting stays on: this is the last touch.
+ *
+ * Gboard takes the stylus mode when an input session starts. The field's
+ * session began at the keyboard step, with the setting at 0, and a link
+ * while the app is in front keeps it (CI run 44741581304). As in round 9b,
+ * the app leaves the front for the drag: back in front, the field has no
+ * focus, so its tap starts a new session.
  */
-function checkStylus() {
+async function checkStylus() {
   adb('shell', 'settings', 'put', 'secure', 'stylus_handwriting_enabled', '1')
-  const { width, height } = size
-  const y = String(Math.round(height * 0.3))
+  loupe('key', 'home')
+  await sleep(2000)
   const drag = loupe(
     'drag',
-    String(Math.round(width * 0.3)),
-    y,
-    String(Math.round(width * 0.7)),
-    y,
-    '--app',
-    EXPO_GO,
+    String(x + 100),
+    String(y),
+    String(x - 100),
+    String(y),
   )
-  // Gboard takes the stylus mode when an input session starts, and the
-  // field's session began at the keyboard step, with the setting at 0:
-  // /sheets again gives the field a new one, as round 9b did before each
-  // tap.
   loupe('open-url', `exp://127.0.0.1:${PORT}/--/sheets`, '--app', EXPO_GO)
   loupe('wait', '--id', 'backs', '--app', EXPO_GO)
   keepState('stylus-before')
@@ -516,7 +515,7 @@ async function checkSheets() {
     'backs',
   )
 
-  if (apiLevel >= 35) checkStylus()
+  if (apiLevel >= 35) await checkStylus()
 }
 
 adb('wait-for-device')
