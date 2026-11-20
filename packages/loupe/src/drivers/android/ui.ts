@@ -8,6 +8,7 @@ import { toDisplayState } from './display'
 import { whileInFront } from './foreground'
 import {
   parseUiautomatorDump,
+  parseUiautomatorWindows,
   type UiautomatorDump,
   type WindowDisplay,
 } from './parse'
@@ -95,10 +96,14 @@ function toNode(
   }
 }
 
-function readDump(target: AndroidTarget, output: string): UiautomatorDump {
-  let dump: UiautomatorDump | undefined
+function readDump<T>(
+  target: AndroidTarget,
+  output: string,
+  parse: (text: string) => T | undefined,
+): T {
+  let dump: T | undefined
   try {
-    dump = parseUiautomatorDump(output)
+    dump = parse(output)
   } catch (error) {
     throw new LoupeError(
       'tool_failed',
@@ -153,8 +158,54 @@ export async function readWindowTree(
   return treeOf(target, await dumpTree(target), display)
 }
 
+export interface UiWindow {
+  /** As uiautomator names it, for example `TYPE_INPUT_METHOD`. */
+  type: string
+  title: string
+  nodes: UiNode[]
+}
+
+/**
+ * Reads the tree of each window on the screen, from the top, with
+ * `uiautomator dump --windows` and no foreground check. Use it only for a
+ * window that the plain dump leaves out, such as a sheet of the keyboard.
+ */
+export async function readEachWindow(
+  target: AndroidTarget,
+  display: WindowDisplay,
+): Promise<{ display: DisplayState; windows: UiWindow[] }> {
+  const output = await target.adb.text([
+    'exec-out',
+    'uiautomator',
+    'dump',
+    '--windows',
+    '/dev/tty',
+  ])
+  const dumps = readDump(target, output, parseUiautomatorWindows)
+  for (const dump of dumps) checkRotation(dump, display)
+
+  const state = toDisplayState(display)
+  return {
+    display: state,
+    windows: dumps.map(({ type, title, nodes }) => ({
+      type,
+      title,
+      nodes: toNodes(nodes, state.scale, []),
+    })),
+  }
+}
+
 function dumpTree(target: AndroidTarget): Promise<string> {
   return target.adb.text(['exec-out', 'uiautomator', 'dump', '/dev/tty'])
+}
+
+function checkRotation(dump: UiautomatorDump, display: WindowDisplay): void {
+  if (dump.rotation !== undefined && dump.rotation !== display.rotation) {
+    throw new LoupeError(
+      'tool_failed',
+      `The screen turned during the dump. Wait until it's still, then try again.`,
+    )
+  }
 }
 
 function treeOf(
@@ -162,14 +213,8 @@ function treeOf(
   output: string,
   display: WindowDisplay,
 ): AndroidUi {
-  const dump = readDump(target, output)
-
-  if (dump.rotation !== undefined && dump.rotation !== display.rotation) {
-    throw new LoupeError(
-      'tool_failed',
-      `The screen turned during the dump. Wait until it's still, then try again.`,
-    )
-  }
+  const dump = readDump(target, output, parseUiautomatorDump)
+  checkRotation(dump, display)
 
   const state = toDisplayState(display)
   const probeLabels: string[] = []

@@ -61,7 +61,7 @@ function round8(level: number) {
 function emulator(
   level: number,
   displays: readonly string[],
-  more: Record<string, FakeRun> = {},
+  more: Record<string, FakeRun | readonly FakeRun[]> = {},
   serial = 'emulator-5554',
 ) {
   const phone = !serial.startsWith('emulator-')
@@ -328,28 +328,92 @@ describe('dismissAndroid', () => {
     })
     expect(sent()).toEqual(['input tap 540 1358'])
   })
+})
 
-  it("closes Gboard's stylus sheet, whose keyboard source has no height", async () => {
-    // The smoke run on API 36: the field tap showed "Try out your stylus".
-    const smoke = (file: string) => recordedText(`api-36/smoke/${file}`)
-    const { target, sent } = emulator(
-      36,
-      [
-        smoke('keyboard-open.displays.txt'),
-        smoke('keyboard-before.displays.txt'),
-      ],
-      {
-        'shell dumpsys window windows': recorded(
-          'api-36/smoke/keyboard-open.windows.txt',
-        ),
-      },
+/**
+ * Round 9b: Gboard's stylus mode after a console pinch, on the probe app's
+ * field. `open`: the "Try out your stylus" sheet over the handwriting
+ * toolbar; `2-cancel`: the toolbar alone; `3-escape`: neither.
+ */
+describe.each([
+  [35, '600 2211'],
+  [36, '600 2274'],
+])('dismissAndroid in the stylus mode, on API %i', (level, cancel) => {
+  const dir = `api-${level}/stylus/pinch/after-1`
+  const displays = (state: string) =>
+    recordedText(`${dir}/${state}.dumpsys-window-displays.txt`)
+  const withSheet = recordedText(`${dir}/2-cancel.send.txt.ui-windows.txt`)
+  // Round 9b has no dump of each window after Cancel: the same dump with no
+  // Cancel button stands for it.
+  const noSheet = { stdout: withSheet.replaceAll('android:id/closeButton', '') }
+
+  function stylus(states: readonly string[], windows: readonly FakeRun[]) {
+    return emulator(level, states.map(displays), {
+      'shell dumpsys window windows': recorded(
+        `${dir}/open.dumpsys-window-windows.txt`,
+      ),
+      'exec-out uiautomator dump --windows /dev/tty': windows,
+      [`shell input tap ${cancel}`]: {},
+      'shell input keyevent KEYCODE_ESCAPE': {},
+    })
+  }
+
+  it('taps Cancel on the stylus sheet, and names the keyboard under it', async () => {
+    const { target, sent } = stylus(
+      ['open', '2-cancel'],
+      [{ stdout: withSheet }, noSheet],
     )
 
     expect(await dismissAndroid(await target(), EXPO_GO, FAST)).toEqual({
       app: EXPO_GO,
-      closed: [closed('keyboard', 'back')],
+      closed: [closed('stylus-sheet', 'tap-cancel')],
+      next: 'keyboard',
     })
-    expect(sent()).toEqual(['input keyevent KEYCODE_BACK'])
+    expect(sent()).toEqual([`input tap ${cancel}`])
+  })
+
+  it('closes the sheet, then the keyboard with Escape, with all', async () => {
+    const { target, sent } = stylus(
+      ['open', '2-cancel', '3-escape'],
+      [{ stdout: withSheet }, noSheet],
+    )
+
+    expect(
+      await dismissAndroid(await target(), EXPO_GO, { ...FAST, all: true }),
+    ).toEqual({
+      app: EXPO_GO,
+      closed: [
+        closed('stylus-sheet', 'tap-cancel'),
+        closed('keyboard', 'escape'),
+      ],
+    })
+    expect(sent()).toEqual([
+      `input tap ${cancel}`,
+      'input keyevent KEYCODE_ESCAPE',
+    ])
+  })
+
+  it('closes the handwriting toolbar with Escape, not Back', async () => {
+    const { target, sent } = stylus(['2-cancel', '3-escape'], [noSheet])
+
+    expect(await dismissAndroid(await target(), EXPO_GO, FAST)).toEqual({
+      app: EXPO_GO,
+      closed: [closed('keyboard', 'escape')],
+    })
+    expect(sent()).toEqual(['input keyevent KEYCODE_ESCAPE'])
+  })
+
+  it('fails when the sheet stays after the tap', async () => {
+    const { target } = stylus(['open'], [{ stdout: withSheet }])
+
+    await expect(
+      dismissAndroid(await target(), EXPO_GO, FAST),
+    ).rejects.toMatchObject({
+      code: 'timeout',
+      message: expect.stringContaining(
+        `"Try out your stylus" sheet still shows 0 ms after loupe tried to close it with a tap on Cancel.`,
+      ),
+    })
   })
 })
 

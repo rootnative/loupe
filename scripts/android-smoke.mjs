@@ -398,6 +398,44 @@ function checkSheet(passed, what, name) {
 }
 
 /**
+ * Gboard's stylus mode (API 35+, round 9b): stylus handwriting on again, a
+ * drag through the console on the empty top of /sheets, then the field.
+ * `dismiss --all` closes the "Try out your stylus" sheet when it shows (a
+ * tap on Cancel), then the handwriting toolbar with Escape, so no Back
+ * reaches the app. The setting stays on: this is the last touch.
+ */
+function checkStylus() {
+  adb('shell', 'settings', 'put', 'secure', 'stylus_handwriting_enabled', '1')
+  const { width, height } = size
+  const y = String(Math.round(height * 0.3))
+  const drag = loupe(
+    'drag',
+    String(Math.round(width * 0.3)),
+    y,
+    String(Math.round(width * 0.7)),
+    y,
+    '--app',
+    EXPO_GO,
+  )
+  keepState('stylus-before')
+  loupe('tap', '--id', 'field', '--app', EXPO_GO)
+  const opened = loupe('wait', '--text', 'keyboard shown', '--app', EXPO_GO)
+  keepState('stylus-open')
+  const stylus = dismissThenWait('keyboard hidden', '--all')
+  const ways = closedBy(stylus.result)
+  checkSheet(
+    drag.ok &&
+      opened.ok &&
+      ['keyboard/escape', 'stylus-sheet/tap-cancel, keyboard/escape'].includes(
+        ways,
+      ) &&
+      stylus.shown,
+    `dismiss --all in the stylus mode: the sheet with a tap on Cancel when it shows, then the keyboard with Escape (drag ${drag.ok ? 'ok' : drag.error?.code}; keyboard shown ${opened.ok ? 'showed' : 'missing'}; ${ways}; keyboard hidden ${stylus.shown ? 'shows' : 'missing'})`,
+    'stylus',
+  )
+}
+
+/**
  * `dismiss` on the probe app's /sheets: nothing open (no key), the
  * notification shade over the share sheet (--all), an alert, then the
  * keyboard. The app counts each Back that reaches it, and must count none.
@@ -405,7 +443,8 @@ function checkSheet(passed, what, name) {
  * The keyboard goes last: the field keeps the focus after it, and Android
  * 11 shows the keyboard again each time the app gets the focus back. That
  * step keeps the state each time: it needs the plain keyboard, see
- * `stylus_handwriting_enabled` below.
+ * `stylus_handwriting_enabled` below. On API 35+ the stylus step comes
+ * after it.
  */
 async function checkSheets() {
   loupe('open-url', `exp://127.0.0.1:${PORT}/--/sheets`, '--app', EXPO_GO)
@@ -455,6 +494,8 @@ async function checkSheets() {
     'keyboard',
   )
 
+  if (apiLevel >= 35) checkStylus()
+
   const status = sheetStatus()
   checkSheet(
     status.backs === 'backs 0',
@@ -470,7 +511,8 @@ keepState('start')
 // The touches of the emulator console come from a device with a STYLUS
 // source. After them, Gboard on API 35+ shows its "Try out your stylus"
 // sheet and a handwriting toolbar in place of the keyboard, and the Back
-// that closes the toolbar also reaches the app.
+// that closes the toolbar also reaches the app. `checkStylus` turns it on
+// again at the end, for the stylus step of `dismiss`.
 adb('shell', 'settings', 'put', 'secure', 'stylus_handwriting_enabled', '0')
 adb('shell', 'am', 'start', '-W', '-a', 'android.settings.SETTINGS')
 await sleep(2000)

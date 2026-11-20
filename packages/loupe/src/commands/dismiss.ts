@@ -16,7 +16,7 @@ import { waitAfterAction } from '../drivers/android/wait'
 const layerSchema = z
   .enum(LAYERS)
   .describe(
-    `keyboard. app-dialog: a dialog or a modal of the app. share-sheet: the system share sheet. permission-dialog: Android doesn't count Back as a denial, and the app's request can stay with no answer. notification-shade: also with the quick settings open. not-responding: an "isn't responding" dialog, of any app.`,
+    `keyboard. stylus-sheet: the "Try out your stylus" sheet of Gboard's stylus mode, which a stylus touch starts (on an emulator, loupe's double-tap, drag and pinch are one). app-dialog: a dialog or a modal of the app. share-sheet: the system share sheet. permission-dialog: Android doesn't count Back as a denial, and the app's request can stay with no answer. notification-shade: also with the quick settings open. not-responding: an "isn't responding" dialog, of any app.`,
   )
 
 const closedSchema = z.object({
@@ -24,7 +24,7 @@ const closedSchema = z.object({
   way: z
     .enum(DISMISS_WAYS)
     .describe(
-      'back: the Back key. collapse: the status bar collapse, which closes the shade and the quick settings in one step. tap-wait: a tap on Wait in an "isn\'t responding" dialog, so the app gets more time.',
+      `back: the Back key. escape: the Escape key, for the keyboard in Gboard's stylus mode, where Back also reaches the app. tap-cancel: a tap on Cancel in the stylus sheet. collapse: the status bar collapse, which closes the shade and the quick settings in one step. tap-wait: a tap on Wait in an "isn't responding" dialog, so the app gets more time.`,
     ),
   ms: z
     .number()

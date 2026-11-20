@@ -9,6 +9,7 @@ import {
   parseNightMode,
   parseRecentTasks,
   parseUiautomatorDump,
+  parseUiautomatorWindows,
   parseWindowDisplays,
   parseWindowInsets,
   parseWindowList,
@@ -317,6 +318,40 @@ describe('parseUiautomatorDump', () => {
     expect(() =>
       parseUiautomatorDump('<hierarchy rotation="0"><node index="0">'),
     ).toThrow("<node> isn't closed.")
+  })
+})
+
+describe('parseUiautomatorWindows', () => {
+  it.each([35, 36])(
+    "reads each window from the top, the keyboard's too, on API %i",
+    (level) => {
+      const windows = parseUiautomatorWindows(
+        recordedText(
+          `api-${level}/stylus/pinch/after-1/2-cancel.send.txt.ui-windows.txt`,
+        ),
+      )
+
+      expect(
+        windows?.map(({ type, title, rotation }) => ({
+          type,
+          title,
+          rotation,
+        })),
+      ).toEqual([
+        { type: 'TYPE_SYSTEM', title: '', rotation: 0 },
+        { type: 'TYPE_INPUT_METHOD', title: 'Gboard', rotation: 0 },
+        { type: 'TYPE_APPLICATION', title: 'Expo Go', rotation: 0 },
+      ])
+      expect(windows?.[1]?.nodes[0]?.attributes.package).toBe(
+        'com.google.android.inputmethod.latin',
+      )
+    },
+  )
+
+  it('gives undefined for output with no tree', () => {
+    expect(
+      parseUiautomatorWindows('ERROR: could not get idle state.\n'),
+    ).toBeUndefined()
   })
 })
 

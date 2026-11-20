@@ -286,12 +286,51 @@ export function parseUiautomatorDump(
   const start = text.indexOf('<hierarchy')
   if (start === -1) return undefined
 
-  const hierarchy = parseXml(text.slice(start))
+  return hierarchyOf(parseXml(text.slice(start)))
+}
+
+function hierarchyOf(hierarchy: XmlElement): UiautomatorDump {
   const rotation = Number.parseInt(hierarchy.attributes.rotation ?? '', 10)
   return {
     rotation: Number.isNaN(rotation) ? undefined : rotation,
     nodes: hierarchy.children.filter((child) => child.name === 'node'),
   }
+}
+
+export interface UiautomatorWindow extends UiautomatorDump {
+  /** As uiautomator names it, for example `TYPE_INPUT_METHOD`. */
+  type: string
+  /** For example `Gboard`. Empty for a system bar. */
+  title: string
+}
+
+/**
+ * Reads `uiautomator dump --windows /dev/tty`: each window of display 0,
+ * from the top, with its tree. The plain dump has only the window in focus,
+ * so it doesn't show a sheet of the keyboard. Undefined when the output has
+ * no tree; it throws an error when the XML is broken.
+ */
+export function parseUiautomatorWindows(
+  text: string,
+): UiautomatorWindow[] | undefined {
+  const start = text.indexOf('<displays')
+  if (start === -1) return undefined
+
+  const display = parseXml(text.slice(start)).children.find(
+    (child) => child.name === 'display' && child.attributes.id === '0',
+  )
+  return (display?.children ?? [])
+    .filter((child) => child.name === 'window')
+    .map((window) => {
+      const hierarchy = window.children.find(
+        (child) => child.name === 'hierarchy',
+      )
+      return {
+        type: window.attributes.type ?? '',
+        title: window.attributes.title ?? '',
+        ...(hierarchy ? hierarchyOf(hierarchy) : { nodes: [] }),
+      }
+    })
 }
 
 export interface AmStart {

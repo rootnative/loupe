@@ -1,25 +1,29 @@
 import { setTimeout as sleep } from 'node:timers/promises'
-import { findElement } from '../../core/element'
+import { elementsOnScreen, findElement } from '../../core/element'
 import { LoupeError } from '../../core/errors'
+import { type Point, rectCentre } from '../../core/units'
 import { type AndroidTarget } from './devices'
 import { dumpWindowDisplays, windowDisplayOf } from './display'
 import { requireAppOnDevice } from './foreground'
 import {
+  type InsetSource,
   parseWindowInsets,
   parseWindowList,
   type WindowDisplay,
   type WindowEntry,
 } from './parse'
 import { onScreen } from './touch'
-import { readWindowTree } from './ui'
+import { readEachWindow, readWindowTree } from './ui'
 
 /**
- * The layers that `dismiss` closes: the keyboard, a dialog or a modal of the
- * app, the system share sheet, the permission dialog, the notification shade
- * (also with the quick settings open), and an "isn't responding" dialog.
+ * The layers that `dismiss` closes: the keyboard, the "Try out your stylus"
+ * sheet of Gboard's stylus mode, a dialog or a modal of the app, the system
+ * share sheet, the permission dialog, the notification shade (also with the
+ * quick settings open), and an "isn't responding" dialog.
  */
 export const LAYERS = [
   'keyboard',
+  'stylus-sheet',
   'app-dialog',
   'share-sheet',
   'permission-dialog',
@@ -30,12 +34,21 @@ export const LAYERS = [
 export type Layer = (typeof LAYERS)[number]
 
 /**
- * How loupe closes a layer. `back`: the Back key. `collapse`: `cmd statusbar
- * collapse`, which closes the shade and the quick settings in one step; Back
- * closes only one level of the quick settings. `tap-wait`: a tap on "Wait"
- * in an "isn't responding" dialog, so the app gets more time.
+ * How loupe closes a layer. `back`: the Back key. `escape`: the Escape key,
+ * for the keyboard in Gboard's stylus mode, where Back also reaches the app.
+ * `tap-cancel`: a tap on Cancel in the "Try out your stylus" sheet, which
+ * Escape doesn't close. `collapse`: `cmd statusbar collapse`, which closes
+ * the shade and the quick settings in one step; Back closes only one level
+ * of the quick settings. `tap-wait`: a tap on "Wait" in an "isn't
+ * responding" dialog, so the app gets more time.
  */
-export const DISMISS_WAYS = ['back', 'collapse', 'tap-wait'] as const
+export const DISMISS_WAYS = [
+  'back',
+  'escape',
+  'tap-cancel',
+  'collapse',
+  'tap-wait',
+] as const
 
 export type DismissWay = (typeof DISMISS_WAYS)[number]
 
@@ -72,6 +85,7 @@ export interface DismissOptions {
 
 const LAYER_NAMES: Record<Layer, string> = {
   keyboard: 'the keyboard',
+  'stylus-sheet': `the keyboard's "Try out your stylus" sheet`,
   'app-dialog': "the app's dialog",
   'share-sheet': 'the share sheet',
   'permission-dialog': 'the permission dialog',
@@ -81,6 +95,8 @@ const LAYER_NAMES: Record<Layer, string> = {
 
 const WAY_NAMES: Record<DismissWay, string> = {
   back: 'with Back',
+  escape: 'with Escape',
+  'tap-cancel': 'with a tap on Cancel',
   collapse: 'with a status bar collapse',
   'tap-wait': 'with a tap on Wait',
 }
@@ -99,6 +115,15 @@ const SHARE_SHEET_PACKAGES = new Set(['android', 'com.android.intentresolver'])
 const NOT_RESPONDING = 'Application Not Responding: '
 const IME_TYPES = new Set(['ime', 'ITYPE_IME'])
 const WAIT_BUTTON = 'android:id/aerr_wait'
+const CANCEL_BUTTON = 'android:id/closeButton'
+const INPUT_METHOD_WINDOW = 'TYPE_INPUT_METHOD'
+/** A keyboard's source is this share of the screen height or more. */
+const KEYBOARD_SHARE = 1 / 5
+
+type SystemLayer = Extract<
+  Layer,
+  'share-sheet' | 'permission-dialog' | 'notification-shade' | 'not-responding'
+>
 
 /**
  * The layer of a system window, from the title of the focus: the share
@@ -106,7 +131,7 @@ const WAIT_BUTTON = 'android:id/aerr_wait'
  * resolver from API 34; the permission dialog is the
  * `GrantPermissionsActivity` of the permission controller.
  */
-export function systemLayerOf(title: string): Layer | undefined {
+export function systemLayerOf(title: string): SystemLayer | undefined {
   if (title === 'NotificationShade') return 'notification-shade'
   if (title.startsWith(NOT_RESPONDING)) return 'not-responding'
 
@@ -124,33 +149,51 @@ export function systemLayerOf(title: string): Layer | undefined {
   return undefined
 }
 
+/**
+ * What the keyboard's inset source shows: the keyboard has no window in
+ * focus. `handwriting`: visible, but lower than a fifth of the screen. That
+ * is Gboard's stylus mode, which a touch from a stylus source starts (the
+ * emulator console's touchscreen is one): its handwriting toolbar gives the
+ * source 0 px on API 36 and 63 px on API 35, and its "Try out your stylus"
+ * sheet fills the screen with no change to the source.
+ */
+type KeyboardShows = 'none' | 'keyboard' | 'handwriting'
+
 interface Screen {
   display: WindowDisplay
-  /**
-   * The keyboard has no window in focus: its inset source shows it. Only
-   * `visible` counts, not the frame: Gboard's "Try out your stylus" sheet
-   * fills the screen, and gives the source a frame of no height.
-   */
-  keyboard: boolean
+  keyboard: KeyboardShows
 }
 
 type Front =
-  | { kind: 'layer'; layer: Layer; window?: string }
+  | {
+      kind: 'layer'
+      layer: Exclude<Layer, 'stylus-sheet'>
+      window?: string
+    }
+  | { kind: 'layer'; layer: 'stylus-sheet'; cancel: Point }
   | { kind: 'app'; app: string }
 
 type LayerFront = Extract<Front, { kind: 'layer' }>
 
 const KEYBOARD: LayerFront = { kind: 'layer', layer: 'keyboard' }
 
+function keyboardOf(
+  ime: InsetSource | undefined,
+  display: WindowDisplay,
+): KeyboardShows {
+  if (!ime) return 'none'
+  return ime.frame.height >= display.current.height * KEYBOARD_SHARE
+    ? 'keyboard'
+    : 'handwriting'
+}
+
 async function readScreen(target: AndroidTarget): Promise<Screen> {
   const dump = await dumpWindowDisplays(target)
-  const sources = parseWindowInsets(dump)?.sources ?? []
-  return {
-    display: windowDisplayOf(target, dump),
-    keyboard: sources.some(
-      ({ type, visible }) => IME_TYPES.has(type) && visible,
-    ),
-  }
+  const display = windowDisplayOf(target, dump)
+  const ime = parseWindowInsets(dump)?.sources.find(
+    ({ type, visible }) => IME_TYPES.has(type) && visible,
+  )
+  return { display, keyboard: keyboardOf(ime, display) }
 }
 
 async function windowOf(
@@ -159,6 +202,34 @@ async function windowOf(
 ): Promise<WindowEntry | undefined> {
   const dump = await target.adb.text(['shell', 'dumpsys', 'window', 'windows'])
   return parseWindowList(dump).find((window) => window.id === id)
+}
+
+/**
+ * The point of Cancel in the "Try out your stylus" sheet, in px. The sheet
+ * is in the keyboard's own window, so only a dump of each window has it.
+ * Cancel is `android:id/closeButton` there, in each language.
+ */
+async function stylusSheetCancel(
+  target: AndroidTarget,
+  display: WindowDisplay,
+): Promise<Point | undefined> {
+  const { display: state, windows } = await readEachWindow(target, display)
+  const [button] = windows
+    .filter(({ type }) => type === INPUT_METHOD_WINDOW)
+    .flatMap(({ nodes }) =>
+      elementsOnScreen(nodes, { by: 'id', value: CANCEL_BUTTON }, state.size),
+    )
+  return button && onScreen(state, rectCentre(button.frame))
+}
+
+/** The keyboard, or the stylus sheet over it when the sheet shows. */
+async function keyboardFront(
+  target: AndroidTarget,
+  { display, keyboard }: Screen,
+): Promise<LayerFront> {
+  if (keyboard !== 'handwriting') return KEYBOARD
+  const cancel = await stylusSheetCancel(target, display)
+  return cancel ? { kind: 'layer', layer: 'stylus-sheet', cancel } : KEYBOARD
 }
 
 function noFocus(target: AndroidTarget): LoupeError {
@@ -192,15 +263,15 @@ function unknownWindow(owner: string, type: string | undefined): LoupeError {
 /**
  * What is in front, from the top. loupe closes the shade and an "isn't
  * responding" dialog with no Back, so they come before the keyboard. Over
- * each other window the keyboard takes the first Back. An app's dialog has
+ * each other window the keyboard takes the first key. An app's dialog has
  * the title of the app's window, so only the window type tells them apart.
  */
 async function frontOf(
   target: AndroidTarget,
   app: string | undefined,
-  { display, keyboard }: Screen,
+  screen: Screen,
 ): Promise<Front> {
-  const { focus, focusId } = display
+  const { focus, focusId } = screen.display
   if (!focus || !focusId) throw noFocus(target)
 
   const system = systemLayerOf(focus)
@@ -208,15 +279,15 @@ async function frontOf(
     return { kind: 'layer', layer: system, window: focusId }
   }
   if (system) {
-    return keyboard
-      ? KEYBOARD
-      : { kind: 'layer', layer: system, window: focusId }
+    return screen.keyboard === 'none'
+      ? { kind: 'layer', layer: system, window: focusId }
+      : keyboardFront(target, screen)
   }
 
   const window = await windowOf(target, focusId)
   const owner = window?.package ?? focus.split('/')[0] ?? focus
   if (app && owner !== app) throw otherInFront(target, app, focus)
-  if (keyboard) return KEYBOARD
+  if (screen.keyboard !== 'none') return keyboardFront(target, screen)
   if (window?.type === 'APPLICATION') {
     return { kind: 'layer', layer: 'app-dialog', window: focusId }
   }
@@ -240,6 +311,15 @@ async function tapWait(
   await target.adb.run(['shell', 'input', 'tap', String(x), String(y)])
 }
 
+async function sendKey(target: AndroidTarget, key: string): Promise<void> {
+  await target.adb.run(['shell', 'input', 'keyevent', key])
+}
+
+/**
+ * Closes the layer in front. In Gboard's stylus mode, Back closes the
+ * keyboard but also reaches the app, and doesn't close the stylus sheet;
+ * Escape closes the keyboard only (round 9b, API 35 and 36).
+ */
 async function close(
   target: AndroidTarget,
   front: LayerFront,
@@ -252,17 +332,50 @@ async function close(
     case 'not-responding':
       await tapWait(target, screen.display)
       return 'tap-wait'
+    case 'stylus-sheet': {
+      const { x, y } = front.cancel
+      await target.adb.run(['shell', 'input', 'tap', String(x), String(y)])
+      return 'tap-cancel'
+    }
+    case 'keyboard':
+      if (screen.keyboard === 'handwriting') {
+        await sendKey(target, 'KEYCODE_ESCAPE')
+        return 'escape'
+      }
+      await sendKey(target, 'KEYCODE_BACK')
+      return 'back'
     default:
-      await target.adb.run(['shell', 'input', 'keyevent', 'KEYCODE_BACK'])
+      await sendKey(target, 'KEYCODE_BACK')
       return 'back'
   }
 }
 
 /**
- * Reads the screen until the layer is gone, for up to `limit` ms: the
- * keyboard's source hides; each other layer's window loses the focus to
- * another window.
+ * Whether the layer is gone: the keyboard's source hides; the stylus sheet
+ * leaves the keyboard's window (the handwriting toolbar stays); each other
+ * layer's window loses the focus to another window.
  */
+async function isGone(
+  target: AndroidTarget,
+  front: LayerFront,
+  screen: Screen,
+): Promise<boolean> {
+  switch (front.layer) {
+    case 'keyboard':
+      return screen.keyboard === 'none'
+    case 'stylus-sheet':
+      return (
+        screen.keyboard === 'none' ||
+        !(await stylusSheetCancel(target, screen.display))
+      )
+    default: {
+      const { focusId } = screen.display
+      return focusId !== undefined && focusId !== front.window
+    }
+  }
+}
+
+/** Reads the screen until the layer is gone, for up to `limit` ms. */
 async function untilGone(
   target: AndroidTarget,
   front: LayerFront,
@@ -271,12 +384,7 @@ async function untilGone(
   const start = Date.now()
   for (;;) {
     const screen = await readScreen(target)
-    const { focusId } = screen.display
-    const gone =
-      front.layer === 'keyboard'
-        ? !screen.keyboard
-        : focusId !== undefined && focusId !== front.window
-    if (gone) return screen
+    if (await isGone(target, front, screen)) return screen
     if (Date.now() - start >= limit) return undefined
     await sleep(interval)
   }
