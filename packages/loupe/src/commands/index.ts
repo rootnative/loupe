@@ -15,6 +15,7 @@ import { pinchCommand } from './pinch'
 import { rotateCommand } from './rotate'
 import { screenshotCommand } from './screenshot'
 import { scrollToCommand } from './scroll-to'
+import { sweepCommand } from './sweep'
 import { swipeCommand } from './swipe'
 import { tapCommand } from './tap'
 import { themeCommand } from './theme'
@@ -41,6 +42,7 @@ export const registry = createRegistry([
   rotateCommand,
   screenshotCommand,
   scrollToCommand,
+  sweepCommand,
   swipeCommand,
   tapCommand,
   themeCommand,

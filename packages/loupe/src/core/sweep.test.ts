@@ -1,0 +1,316 @@
+import { mkdtempSync, readFileSync, rmSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import path from 'node:path'
+import { afterAll, describe, expect, it } from 'vitest'
+import { type ScreenCheck } from './check'
+import { type Orientation } from './display'
+import { LoupeError } from './errors'
+import { decodePng, encodePng, pngSize } from './png'
+import {
+  type DeviceLook,
+  sweep,
+  type SweepDriver,
+  sweepReportSchema,
+} from './sweep'
+
+const out = mkdtempSync(path.join(tmpdir(), 'loupe-sweep-'))
+afterAll(() => rmSync(out, { recursive: true, force: true }))
+
+const RED = [211, 47, 47, 255]
+const GREY = [117, 117, 117, 255]
+
+function shot(width = 480, height = 960): Buffer {
+  const data = new Uint8Array(width * height * 4).fill(255)
+  return encodePng({ width, height, data })
+}
+
+function checkOf(orientation: Orientation, passed: boolean): ScreenCheck {
+  return {
+    orientation,
+    size: { width: 480, height: 960 },
+    pixels: { width: 480, height: 960 },
+    scale: 1,
+    app: 'com.example.app',
+    safeAreaSource: 'dumpsys',
+    passed,
+    results: [
+      {
+        rule: 'inset',
+        passed,
+        checked: 3,
+        findings: passed
+          ? []
+          : [
+              {
+                element: {
+                  type: 'Text',
+                  frame: { x: 0, y: 0, width: 1, height: 1 },
+                },
+                message: 'Under the bar.',
+                details: {},
+              },
+            ],
+      },
+    ],
+    warnings: [],
+  }
+}
+
+interface Script {
+  /** The links whose screen fails a rule. */
+  defects?: string[]
+  /** The links that give this error on the wait. */
+  errors?: Record<string, LoupeError>
+  /** No screenshot after an error. */
+  noCapture?: boolean
+  restore?: string[]
+}
+
+function fakeDriver(
+  { defects = [], errors = {}, noCapture, restore = [] }: Script = {},
+  start: DeviceLook = { orientation: 'portrait', theme: 'light' },
+) {
+  const calls: string[] = []
+  const look = { ...start }
+  let url = ''
+  const driver: SweepDriver = {
+    look: async () => ({ ...start }),
+    open: async (link) => {
+      url = link
+      calls.push(`open ${link}`)
+    },
+    rotate: async (orientation) => {
+      if (look.orientation !== orientation) calls.push(`rotate ${orientation}`)
+      look.orientation = orientation
+    },
+    setTheme: async (theme) => {
+      if (look.theme !== theme) calls.push(`theme ${theme}`)
+      look.theme = theme
+      return theme === 'dark' && url.endsWith('/fixed') ? ['Kept light.'] : []
+    },
+    waitStill: async () => {
+      const error = errors[url]
+      if (error) throw error
+    },
+    check: async () => ({
+      check: checkOf(look.orientation, !defects.includes(url)),
+      png: shot(),
+    }),
+    capture: async () => {
+      if (noCapture) throw new LoupeError('app_not_in_front', 'Not in front.')
+      return shot()
+    },
+    restore: async (to, changed) => {
+      calls.push(
+        `restore ${to.orientation} ${to.theme} ${changed.orientation} ${changed.theme}`,
+      )
+      return restore
+    },
+  }
+  return { driver, calls }
+}
+
+function pixel(file: string, x: number, y: number): number[] {
+  const image = decodePng(readFileSync(file))
+  return [...image.data.subarray((y * image.width + x) * 4).subarray(0, 4)]
+}
+
+const A = 'app://a'
+const B = 'app://b'
+
+describe('sweep', () => {
+  it('checks each link in the look of the device, and changes nothing', async () => {
+    const folder = path.join(out, 'plain')
+    const { driver, calls } = fakeDriver({ defects: [B] })
+
+    const report = await sweep(driver, { urls: [A, B], out: folder })
+
+    expect(calls).toEqual([
+      `open ${A}`,
+      `open ${B}`,
+      'restore portrait light false false',
+    ])
+    expect(report).toMatchObject({
+      out: folder,
+      passed: false,
+      variants: [
+        {
+          name: 'portrait-light',
+          orientation: 'portrait',
+          theme: 'light',
+          sheet: path.join(folder, 'portrait-light.png'),
+          screens: 2,
+          failed: 1,
+        },
+      ],
+      screens: [
+        {
+          number: 1,
+          url: A,
+          variant: 'portrait-light',
+          passed: true,
+          screenshot: path.join(folder, 'portrait-light', '01.png'),
+        },
+        { number: 2, url: B, passed: false, check: { passed: false } },
+      ],
+      warnings: [],
+    })
+    expect(pngSize(readFileSync(report.screens[1]?.screenshot ?? ''))).toEqual({
+      width: 480,
+      height: 960,
+    })
+  })
+
+  it('writes the report as report.json', async () => {
+    const folder = path.join(out, 'report')
+    const { driver } = fakeDriver({ defects: [A] })
+
+    const report = await sweep(driver, { urls: [A], out: folder })
+    const saved: unknown = JSON.parse(
+      readFileSync(path.join(folder, 'report.json'), 'utf8'),
+    )
+
+    expect(sweepReportSchema.parse(saved)).toEqual(report)
+    expect(report.screens[0]?.check?.results[0]?.findings).toHaveLength(1)
+  })
+
+  it('crosses the orientations with the themes, and puts both back', async () => {
+    const folder = path.join(out, 'variants')
+    const { driver, calls } = fakeDriver()
+
+    const report = await sweep(driver, {
+      urls: [A, B],
+      orientations: ['portrait', 'landscape-left'],
+      themes: ['light', 'dark'],
+      out: folder,
+    })
+
+    expect(report.variants.map(({ name }) => name)).toEqual([
+      'portrait-light',
+      'portrait-dark',
+      'landscape-left-light',
+      'landscape-left-dark',
+    ])
+    expect(report.screens).toHaveLength(8)
+    expect(report.passed).toBe(true)
+    // Each change comes after the first link of its variant is open.
+    expect(calls).toEqual([
+      `open ${A}`,
+      `open ${B}`,
+      `open ${A}`,
+      'theme dark',
+      `open ${B}`,
+      `open ${A}`,
+      'rotate landscape-left',
+      'theme light',
+      `open ${B}`,
+      `open ${A}`,
+      'theme dark',
+      `open ${B}`,
+      'restore portrait light true true',
+    ])
+  })
+
+  it('keeps the error of a screen, and goes on with the next one', async () => {
+    const folder = path.join(out, 'errors')
+    const { driver } = fakeDriver({
+      errors: {
+        [A]: new LoupeError('timeout', "The screen didn't keep still."),
+      },
+    })
+
+    const report = await sweep(driver, { urls: [A, B], out: folder })
+
+    expect(report.passed).toBe(false)
+    expect(report.screens[0]).toMatchObject({
+      passed: false,
+      error: { code: 'timeout', message: "The screen didn't keep still." },
+      screenshot: path.join(folder, 'portrait-light', '01.png'),
+    })
+    expect(report.screens[0]?.check).toBeUndefined()
+    expect(report.screens[1]).toMatchObject({ number: 2, passed: true })
+    expect(report.variants[0]).toMatchObject({ screens: 2, failed: 1 })
+  })
+
+  it('draws a red cell for a failed screen, also with no screenshot', async () => {
+    const folder = path.join(out, 'sheet')
+    const { driver } = fakeDriver({
+      errors: { [A]: new LoupeError('no_handler', 'No app opens it.') },
+      noCapture: true,
+    })
+
+    const report = await sweep(driver, { urls: [A, B], out: folder })
+    const sheet = report.variants[0]?.sheet ?? ''
+
+    expect(report.screens[0]?.screenshot).toBeUndefined()
+    // Two 240 × 480 thumbnails with a 4 px frame, 8 px apart.
+    expect(pngSize(readFileSync(sheet))).toEqual({ width: 520, height: 504 })
+    expect(pixel(sheet, 8 + 247, 8 + 487)).toEqual(RED)
+    expect(pixel(sheet, 8 + 124, 8 + 244)).toEqual([0, 0, 0, 255])
+    expect(pixel(sheet, 264 + 247, 8 + 487)).toEqual(GREY)
+    expect(pixel(sheet, 264 + 124, 8 + 244)).toEqual([255, 255, 255, 255])
+  })
+
+  it('keeps the warnings of a screen, and of the restore', async () => {
+    const { driver } = fakeDriver({ restore: ['The theme stays dark.'] })
+
+    const report = await sweep(driver, {
+      urls: ['app://sides/fixed'],
+      themes: ['dark'],
+      out: path.join(out, 'warnings'),
+    })
+
+    expect(report.screens[0]?.warnings).toEqual(['Kept light.'])
+    expect(report.warnings).toEqual(['The theme stays dark.'])
+    expect(report.variants[0]?.theme).toBe('dark')
+  })
+
+  it('names the variant by a setting that is not a theme', async () => {
+    const { driver } = fakeDriver(
+      {},
+      { orientation: 'landscape-right', theme: 'auto' },
+    )
+
+    const report = await sweep(driver, {
+      urls: [A],
+      out: path.join(out, 'auto'),
+    })
+
+    expect(report.variants[0]?.name).toBe('landscape-right-auto')
+  })
+
+  it('puts the look back when a call fails with no loupe error', async () => {
+    const { driver, calls } = fakeDriver()
+    driver.check = async () => {
+      throw new TypeError('broken')
+    }
+
+    await expect(
+      sweep(driver, {
+        urls: [A],
+        orientations: ['landscape-left'],
+        out: path.join(out, 'broken'),
+      }),
+    ).rejects.toThrow('broken')
+    expect(calls.at(-1)).toBe('restore portrait light true false')
+  })
+
+  it('numbers the files with 3 digits from 100 links', async () => {
+    const folder = path.join(out, 'many')
+    const urls = Array.from({ length: 100 }, (_, index) => `app://s/${index}`)
+    const { driver } = fakeDriver()
+    driver.check = async () => ({
+      check: checkOf('portrait', true),
+      png: shot(24, 48),
+    })
+
+    const report = await sweep(driver, { urls, out: folder })
+
+    expect(report.screens[0]?.screenshot).toBe(
+      path.join(folder, 'portrait-light', '001.png'),
+    )
+    expect(report.screens[99]?.screenshot).toBe(
+      path.join(folder, 'portrait-light', '100.png'),
+    )
+  })
+})

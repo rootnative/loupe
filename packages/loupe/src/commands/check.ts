@@ -3,22 +3,18 @@ import path from 'node:path'
 import { z } from 'zod'
 import {
   describeResults,
-  RULE_CHECKS,
-  ruleResultSchema,
   RULES,
   rulesOf,
+  screenCheckSchema,
   type ScreenTree,
 } from '../core/check'
 import { defineCommand } from '../core/command'
 import { appField, deviceField } from '../core/device'
-import { describeDisplay, displaySchema } from '../core/display'
+import { describeDisplay } from '../core/display'
 import { type Selector } from '../core/element'
 import { LoupeError } from '../core/errors'
-import { type Image } from '../core/png'
-import { decodeCapture } from '../core/screenshot'
+import { checkAndroidUi } from '../drivers/android/check'
 import { selectAndroidDevice } from '../drivers/android/devices'
-import { insetsOfUi } from '../drivers/android/insets'
-import { captureAndroid } from '../drivers/android/screenshot'
 import { type AndroidUi, readAndroidUi } from '../drivers/android/ui'
 import { uiCommand } from './ui'
 
@@ -138,18 +134,7 @@ export const checkCommand = defineCommand({
     app: appField,
     device: deviceField,
   }),
-  output: displaySchema.extend({
-    app: z
-      .string()
-      .optional()
-      .describe('The package of the window in the tree.'),
-    safeAreaSource: z
-      .enum(['probe', 'dumpsys'])
-      .describe('Where the safe area comes from, as in `insets`.'),
-    passed: z.boolean().describe('True when every rule passed.'),
-    results: z.array(ruleResultSchema),
-    warnings: z.array(z.string()),
-  }),
+  output: screenCheckSchema,
   run: async (input, context) => {
     const names =
       input.rules === undefined
@@ -185,37 +170,11 @@ export const checkCommand = defineCommand({
       saved && input.mirrorOf
         ? otherDirection(input.mirrorOf, saved, ui)
         : undefined
-    const insets = await insetsOfUi(target, ui)
-    let image: Image | undefined
-    if (names.includes('centred')) {
-      image = decodeCapture((await captureAndroid(target, input.app)).png)
-      const { pixels } = ui.display
-      if (image.width !== pixels.width || image.height !== pixels.height) {
-        throw new LoupeError(
-          'not_idle',
-          `The screen turned between the tree and the screenshot (${pixels.width} × ${pixels.height} px, then ${image.width} × ${image.height} px). Wait until it's still, then try again.`,
-        )
-      }
-    }
-    const screen = {
-      display: ui.display,
-      app: ui.app,
-      nodes: ui.nodes,
-      direction: ui.probe?.report?.direction,
-      insets,
-      image,
-    }
-    const results = names.map((name) =>
-      RULE_CHECKS[name](screen, { centred, mirrorOf }),
-    )
-    return {
-      ...ui.display,
-      app: ui.app,
-      safeAreaSource: insets.source,
-      passed: results.every((result) => result.passed),
-      results,
-      warnings: insets.warnings,
-    }
+    const { check } = await checkAndroidUi(target, input.app, ui, names, {
+      centred,
+      mirrorOf,
+    })
+    return check
   },
   passed: (check) => check.passed,
   format: (check) =>

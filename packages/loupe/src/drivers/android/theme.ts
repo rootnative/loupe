@@ -157,3 +157,29 @@ export async function setThemeAndroid(
     ],
   }
 }
+
+/**
+ * Puts a theme setting back with no wait and no check of the app in front:
+ * for a command that changed the theme and ends. Android can't take
+ * `custom` back from one command, so that setting gives `unsupported`.
+ */
+export async function restoreThemeAndroid(
+  target: AndroidTarget,
+  setting: ThemeSetting,
+): Promise<void> {
+  if ((await readThemeAndroid(target)) === setting) return
+  if (setting === 'custom') {
+    throw new LoupeError(
+      'unsupported',
+      `The theme of ${target.serial} was on a schedule (custom), and loupe can't put a schedule back. Set it again in the display settings.`,
+    )
+  }
+  const value = setting === 'auto' ? 'auto' : NIGHT[setting]
+  const now = settingOf(target, await night(target, value))
+  if (now !== setting) {
+    throw new LoupeError(
+      'tool_failed',
+      `Android kept the theme ${now} on ${target.serial}, not ${setting}.`,
+    )
+  }
+}

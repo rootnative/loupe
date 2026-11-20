@@ -91,7 +91,8 @@ function keepScreen(name) {
 function loupe(...args) {
   const result = spawnSync(process.execPath, [BIN, ...args, '--json'], {
     encoding: 'utf8',
-    timeout: 120_000,
+    // A sweep opens and checks 4 screens in one call.
+    timeout: 300_000,
   })
   runs += 1
   const name = `${String(runs).padStart(2, '0')}-${args[0]}.json`
@@ -279,9 +280,69 @@ async function checkProbeApp(metro) {
     'insets: the two landscapes mirror each other, and their sides differ',
   )
   loupe('rotate', 'portrait')
+  checkSweep()
   checkTheme()
   await checkAppState()
   await checkSheets()
+}
+
+/**
+ * `sweep` on the probe app's centred pattern, in portrait and one landscape:
+ * 4 screens with no error, the defect found in portrait and its fixed twin
+ * passed in both, a screenshot for each screen, a contact sheet for each
+ * variant, and the screen in portrait again at the end.
+ */
+function checkSweep() {
+  const folder = path.join(out, 'sweep')
+  const link = (variant) => `exp://127.0.0.1:${PORT}/--/centred/${variant}`
+  const swept = loupe(
+    'sweep',
+    '--url',
+    link('defect'),
+    '--url',
+    link('fixed'),
+    '--orientation',
+    'portrait,landscape-left',
+    '--out',
+    folder,
+    '--app',
+    EXPO_GO,
+  )
+  const data = swept.data
+  const failures = data?.failures ?? []
+  const errors = failures.filter((failure) => failure.error)
+  const sheets = (data?.variants ?? []).map(({ sheet }) => pngSize(sheet))
+  let report
+  try {
+    report = JSON.parse(readFileSync(path.join(folder, 'report.json'), 'utf8'))
+  } catch {
+    report = undefined
+  }
+  const shots = (report?.screens ?? []).map(({ screenshot }) =>
+    screenshot ? pngSize(screenshot) : undefined,
+  )
+  const passed =
+    swept.exit === 1 &&
+    data?.screens === 4 &&
+    errors.length === 0 &&
+    failures.some(
+      ({ number, variant, rules }) =>
+        number === 1 &&
+        variant.startsWith('portrait-') &&
+        rules.includes('centred'),
+    ) &&
+    failures.every(({ number }) => number === 1) &&
+    sheets.length === 2 &&
+    sheets.every(Boolean) &&
+    shots.length === 4 &&
+    shots.every(Boolean) &&
+    data.warnings.length === 0 &&
+    loupe('ui', '--app', EXPO_GO).data?.orientation === 'portrait'
+  check(
+    passed,
+    `sweep: 2 links × 2 orientations, the centred defect found and its twin passed (exit ${swept.exit}; ${data?.screens} screens; failed: ${failures.map(({ number, variant, rules, error }) => `${number} ${variant} ${error ?? rules.join('+')}`).join(', ') || 'none'}; ${sheets.filter(Boolean).length} sheets; ${shots.filter(Boolean).length} screenshots)`,
+  )
+  if (!passed) keepScreen('sweep.png')
 }
 
 /**

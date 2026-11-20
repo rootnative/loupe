@@ -1,5 +1,5 @@
 import { z } from 'zod'
-import { type DisplayState } from './display'
+import { type DisplayState, displaySchema } from './display'
 import {
   describeElement,
   type Element,
@@ -67,6 +67,19 @@ export const ruleResultSchema = z.object({
 })
 
 export type RuleResult = z.infer<typeof ruleResultSchema>
+
+/** One checked screen: the output of `check`, and of each screen of `sweep`. */
+export const screenCheckSchema = displaySchema.extend({
+  app: z.string().optional().describe('The package of the window in the tree.'),
+  safeAreaSource: z
+    .enum(['probe', 'dumpsys'])
+    .describe('Where the safe area comes from, as in `insets`.'),
+  passed: z.boolean().describe('True when every rule passed.'),
+  results: z.array(ruleResultSchema),
+  warnings: z.array(z.string()),
+})
+
+export type ScreenCheck = z.infer<typeof screenCheckSchema>
 
 /** The tree of one screen, as `ui` gives it. Sizes in dp. */
 export interface ScreenTree {
