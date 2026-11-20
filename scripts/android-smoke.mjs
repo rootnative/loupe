@@ -399,17 +399,20 @@ function checkSheet(passed, what, name) {
 
 /**
  * Gboard's stylus mode (API 35+, round 9b): stylus handwriting on again, a
- * drag through the console on the home screen, /sheets opened again, then
- * the field. `dismiss --all` closes the "Try out your stylus" sheet when it
- * shows (a tap on Cancel), then the handwriting toolbar with Escape, so no
- * Back reaches the app: the step reads `backs` itself, as the new open can
- * start the count again. The setting stays on: this is the last touch.
+ * drag through the console on the home screen, the probe app's / and then
+ * /sheets, then the field. `dismiss --all` closes the "Try out your stylus"
+ * sheet when it shows (a tap on Cancel), then the handwriting toolbar with
+ * Escape, so no Back reaches the app: the step reads `backs` itself, as the
+ * new /sheets starts the count again. The setting stays on: this is the
+ * last touch.
  *
- * Gboard takes the stylus mode when an input session starts. The field's
- * session began at the keyboard step, with the setting at 0, and a link
- * while the app is in front keeps it (CI run 44741581304). As in round 9b,
- * the app leaves the front for the drag: back in front, the field has no
- * focus, so its tap starts a new session.
+ * Gboard takes the stylus mode only for a session that the tap itself
+ * starts, on a field with no focus before it (`CHECK_FOCUS` in
+ * `mStartInputHistory`; round 9b, CI run 44391789676). After the keyboard
+ * step the field keeps its focus: a link to /sheets keeps the field (CI
+ * run 44741581304), and the app back from the home screen starts a session
+ * on window focus, not on the tap (CI run 44742938051). / unmounts the
+ * field, so the /sheets after it has a new one with no focus.
  */
 async function checkStylus() {
   adb('shell', 'settings', 'put', 'secure', 'stylus_handwriting_enabled', '1')
@@ -422,6 +425,8 @@ async function checkStylus() {
     String(x - 100),
     String(y),
   )
+  loupe('open-url', `exp://127.0.0.1:${PORT}/--/`, '--app', EXPO_GO)
+  loupe('wait', '--label', 'safe area', '--app', EXPO_GO)
   loupe('open-url', `exp://127.0.0.1:${PORT}/--/sheets`, '--app', EXPO_GO)
   loupe('wait', '--id', 'backs', '--app', EXPO_GO)
   keepState('stylus-before')
