@@ -399,10 +399,12 @@ function checkSheet(passed, what, name) {
 
 /**
  * Gboard's stylus mode (API 35+, round 9b): stylus handwriting on again, a
- * drag through the console on the empty top of /sheets, then the field.
- * `dismiss --all` closes the "Try out your stylus" sheet when it shows (a
- * tap on Cancel), then the handwriting toolbar with Escape, so no Back
- * reaches the app. The setting stays on: this is the last touch.
+ * drag through the console on the empty top of /sheets, /sheets opened
+ * again, then the field. `dismiss --all` closes the "Try out your stylus"
+ * sheet when it shows (a tap on Cancel), then the handwriting toolbar with
+ * Escape, so no Back reaches the app: the step reads `backs` itself, as
+ * the new open can start the count again. The setting stays on: this is
+ * the last touch.
  */
 function checkStylus() {
   adb('shell', 'settings', 'put', 'secure', 'stylus_handwriting_enabled', '1')
@@ -417,6 +419,12 @@ function checkStylus() {
     '--app',
     EXPO_GO,
   )
+  // Gboard takes the stylus mode when an input session starts, and the
+  // field's session began at the keyboard step, with the setting at 0:
+  // /sheets again gives the field a new one, as round 9b did before each
+  // tap.
+  loupe('open-url', `exp://127.0.0.1:${PORT}/--/sheets`, '--app', EXPO_GO)
+  loupe('wait', '--id', 'backs', '--app', EXPO_GO)
   keepState('stylus-before')
   loupe('tap', '--id', 'field', '--app', EXPO_GO)
   const opened = loupe('wait', '--text', 'keyboard shown', '--app', EXPO_GO)
@@ -433,6 +441,13 @@ function checkStylus() {
     `dismiss --all in the stylus mode: the sheet with a tap on Cancel when it shows, then the keyboard with Escape (drag ${drag.ok ? 'ok' : drag.error?.code}; keyboard shown ${opened.ok ? 'showed' : 'missing'}; ${ways}; keyboard hidden ${stylus.shown ? 'shows' : 'missing'})`,
     'stylus',
   )
+
+  const { backs } = sheetStatus()
+  checkSheet(
+    backs === 'backs 0',
+    `dismiss in the stylus mode: no Back reached the app (${backs})`,
+    'stylus-backs',
+  )
 }
 
 /**
@@ -444,7 +459,7 @@ function checkStylus() {
  * 11 shows the keyboard again each time the app gets the focus back. That
  * step keeps the state each time: it needs the plain keyboard, see
  * `stylus_handwriting_enabled` below. On API 35+ the stylus step comes
- * after it.
+ * after the `backs` check.
  */
 async function checkSheets() {
   loupe('open-url', `exp://127.0.0.1:${PORT}/--/sheets`, '--app', EXPO_GO)
@@ -494,14 +509,14 @@ async function checkSheets() {
     'keyboard',
   )
 
-  if (apiLevel >= 35) checkStylus()
-
   const status = sheetStatus()
   checkSheet(
     status.backs === 'backs 0',
     `dismiss: no Back reached the app (${status.backs}; ${status.share}; ${status.alert})`,
     'backs',
   )
+
+  if (apiLevel >= 35) checkStylus()
 }
 
 adb('wait-for-device')
