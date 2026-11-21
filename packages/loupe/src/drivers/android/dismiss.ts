@@ -1,4 +1,5 @@
 import { setTimeout as sleep } from 'node:timers/promises'
+import { labelledOverlays } from '../../core/check'
 import { elementsOnScreen, findElement } from '../../core/element'
 import { LoupeError } from '../../core/errors'
 import { type Point, rectCentre } from '../../core/units'
@@ -14,18 +15,20 @@ import {
   type WindowEntry,
 } from './parse'
 import { onScreen } from './touch'
-import { readEachWindow, readWindowTree } from './ui'
+import { readAndroidUi, readEachWindow, readWindowTree } from './ui'
 
 /**
  * The layers that `dismiss` closes: the keyboard, the "Try out your stylus"
- * sheet of Gboard's stylus mode, a dialog or a modal of the app, the system
- * share sheet, the permission dialog, the notification shade (also with the
- * quick settings open), and an "isn't responding" dialog.
+ * sheet of Gboard's stylus mode, a dialog or a modal of the app, an overlay
+ * that the app draws in its own window, the system share sheet, the
+ * permission dialog, the notification shade (also with the quick settings
+ * open), and an "isn't responding" dialog.
  */
 export const LAYERS = [
   'keyboard',
   'stylus-sheet',
   'app-dialog',
+  'app-overlay',
   'share-sheet',
   'permission-dialog',
   'notification-shade',
@@ -58,6 +61,8 @@ export const MAX_LAYERS = 5
 
 export interface Closed {
   layer: Layer
+  /** The label of an `app-overlay`: its scrim or its outside-press region. */
+  label?: string
   way: DismissWay
   /** Milliseconds from the key, command or tap until the layer was gone. */
   ms: number
@@ -73,6 +78,7 @@ export interface Dismissed {
   closed: Closed[]
   /** The layer that shows now, when loupe stopped before the app. */
   next?: Layer
+  warnings?: string[]
 }
 
 export interface DismissOptions {
@@ -88,6 +94,7 @@ const LAYER_NAMES: Record<Layer, string> = {
   keyboard: 'the keyboard',
   'stylus-sheet': `the keyboard's "Try out your stylus" sheet`,
   'app-dialog': "the app's dialog",
+  'app-overlay': "the app's overlay",
   'share-sheet': 'the share sheet',
   'permission-dialog': 'the permission dialog',
   'notification-shade': 'the notification shade',
@@ -108,8 +115,9 @@ export function describeLayer(layer: Layer): string {
 }
 
 /** For a person: `the share sheet with Back (152 ms)`. */
-export function describeClosed({ layer, way, ms }: Closed): string {
-  return `${LAYER_NAMES[layer]} ${WAY_NAMES[way]} (${ms} ms)`
+export function describeClosed({ layer, label, way, ms }: Closed): string {
+  const named = label === undefined ? '' : ` "${label}"`
+  return `${LAYER_NAMES[layer]}${named} ${WAY_NAMES[way]} (${ms} ms)`
 }
 
 const SHARE_SHEET_PACKAGES = new Set(['android', 'com.android.intentresolver'])
@@ -167,11 +175,12 @@ interface Screen {
 type Front =
   | {
       kind: 'layer'
-      layer: Exclude<Layer, 'stylus-sheet'>
+      layer: Exclude<Layer, 'stylus-sheet' | 'app-overlay'>
       window?: string
     }
   | { kind: 'layer'; layer: 'stylus-sheet'; cancel: Point }
-  | { kind: 'app'; app: string }
+  | { kind: 'layer'; layer: 'app-overlay'; app: string; label: string }
+  | { kind: 'app'; app: string; warning?: string }
 
 type LayerFront = Extract<Front, { kind: 'layer' }>
 
@@ -260,6 +269,41 @@ function unknownWindow(owner: string, type: string | undefined): LoupeError {
   )
 }
 
+/** The top labelled overlay in the app's own window, if one shows. */
+async function topOverlay(
+  target: AndroidTarget,
+  app: string,
+): Promise<string | undefined> {
+  const ui = await readAndroidUi(target, app)
+  return labelledOverlays({ ...ui, app }).at(-1)?.label
+}
+
+/**
+ * The app's main window is in front. An overlay that the app draws in it,
+ * such as the menu or the sheet of a component library, has no window of
+ * its own: its scrim, or the region that closes it on an outside press, is
+ * a full-screen node with a label and a touch. A screen that never keeps
+ * still can't be read, so loupe sends no key and says why.
+ */
+async function appFront(target: AndroidTarget, app: string): Promise<Front> {
+  try {
+    const label = await topOverlay(target, app)
+    return label === undefined
+      ? { kind: 'app', app }
+      : { kind: 'layer', layer: 'app-overlay', app, label }
+  } catch (error) {
+    if (!(error instanceof LoupeError) || error.code !== 'not_idle') {
+      throw error
+    }
+    return {
+      kind: 'app',
+      app,
+      warning:
+        "The app's screen never kept still, so loupe couldn't look for an overlay that the app draws itself, such as a menu or a sheet. If one shows, press back with the key command.",
+    }
+  }
+}
+
 /**
  * What is in front, from the top. loupe closes the shade and an "isn't
  * responding" dialog with no Back, so they come before the keyboard. Over
@@ -291,7 +335,7 @@ async function frontOf(
   if (window?.type === 'APPLICATION') {
     return { kind: 'layer', layer: 'app-dialog', window: focusId }
   }
-  if (window?.type === 'BASE_APPLICATION') return { kind: 'app', app: owner }
+  if (window?.type === 'BASE_APPLICATION') return appFront(target, owner)
   throw unknownWindow(owner, window?.type)
 }
 
@@ -352,8 +396,9 @@ async function close(
 
 /**
  * Whether the layer is gone: the keyboard's source hides; the stylus sheet
- * leaves the keyboard's window (the handwriting toolbar stays); each other
- * layer's window loses the focus to another window.
+ * leaves the keyboard's window (the handwriting toolbar stays); an overlay
+ * of the app no longer shows its label, or the app left the front; each
+ * other layer's window loses the focus to another window.
  */
 async function isGone(
   target: AndroidTarget,
@@ -368,6 +413,15 @@ async function isGone(
         screen.keyboard === 'none' ||
         !(await stylusSheetCancel(target, screen.display))
       )
+    case 'app-overlay':
+      try {
+        return (await topOverlay(target, front.app)) !== front.label
+      } catch (error) {
+        if (!(error instanceof LoupeError)) throw error
+        if (error.code === 'app_not_in_front') return true
+        if (error.code === 'not_idle') return false
+        throw error
+      }
     default: {
       const { focusId } = screen.display
       return focusId !== undefined && focusId !== front.window
@@ -403,7 +457,8 @@ function afterClosed(closed: readonly Closed[], error: unknown): unknown {
  * Closes the top layer over the app, or with `all` each layer up to
  * `MAX_LAYERS`. It sends no key when nothing is open, and none into a window
  * that it doesn't know: Back there could leave a screen of the app, or the
- * app. A real device needs `app`.
+ * app. In the app's own window it closes only a labelled overlay
+ * (`labelledOverlays`). A real device needs `app`.
  */
 export async function dismissAndroid(
   target: AndroidTarget,
@@ -418,7 +473,13 @@ export async function dismissAndroid(
   try {
     for (;;) {
       const front = await frontOf(target, app, screen)
-      if (front.kind === 'app') return { app: front.app, closed }
+      if (front.kind === 'app') {
+        return {
+          app: front.app,
+          closed,
+          ...(front.warning ? { warnings: [front.warning] } : {}),
+        }
+      }
       if (closed.length >= (all ? MAX_LAYERS : 1)) {
         return { app, closed, next: front.layer }
       }
@@ -433,7 +494,12 @@ export async function dismissAndroid(
           `${name[0]?.toUpperCase()}${name.slice(1)} still shows ${limit} ms after loupe tried to close it ${WAY_NAMES[way]}.`,
         )
       }
-      closed.push({ layer: front.layer, way, ms: Date.now() - start })
+      closed.push({
+        layer: front.layer,
+        ...(front.layer === 'app-overlay' ? { label: front.label } : {}),
+        way,
+        ms: Date.now() - start,
+      })
       screen = after
     }
   } catch (error) {

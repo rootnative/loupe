@@ -255,6 +255,23 @@ export function isOverlay(node: UiNode, screen: ScreenTree): boolean {
 }
 
 /**
+ * The overlays with a label and a touch, in tree order, so the top one is
+ * last: the scrim of a sheet, or the region that closes a menu. A
+ * full-screen touch with no label, such as a wrapper that hides the
+ * keyboard, isn't one.
+ */
+export function labelledOverlays(screen: ScreenTree): UiNode[] {
+  return place(screen)
+    .map(({ node }) => node)
+    .filter(
+      (node) =>
+        Boolean(node.label) &&
+        (node.clickable || node.longClickable) &&
+        isOverlay(node, screen),
+    )
+}
+
+/**
  * `inset`: an element with text, a label or a touch reaches past the safe
  * area into a bar or the cutout. Inside a scroll view, the edges along its
  * axis don't count: content scrolls under the bars on purpose. An overlay

@@ -8,13 +8,21 @@ const ADB = 'adb -s emulator-5554'
 const SHEETS = 'api-36/sheets/alert/back'
 const MAIN = recordedText(`${SHEETS}/before.dumpsys-window-displays.txt`)
 const DIALOG = recordedText(`${SHEETS}/open.dumpsys-window-displays.txt`)
+const APP = recordedText('api-36/probe/night/light/last.ui-tty.txt')
+const OVERLAY = APP.replace(
+  '</hierarchy>',
+  '<node index="9" text="" resource-id="scrim" class="android.widget.Button" package="host.exp.exponent" content-desc="Close overlay" clickable="true" long-clickable="false" bounds="[0,0][1080,2400]" /></hierarchy>',
+)
 const SHADE = MAIN.replace(
   /mCurrentFocus=Window\{\S+ u0 [^}]+\}/,
   'mCurrentFocus=Window{5e7a11 u0 NotificationShade}',
 )
 
-/** An API 36 emulator with Expo Go (round 8), and these display dumps. */
-function emulator(displays: readonly string[]) {
+/**
+ * An API 36 emulator with Expo Go (round 8), these display dumps, and these
+ * dumps of the app's screen.
+ */
+function emulator(displays: readonly string[], screens = [APP]) {
   const { context } = fakeContext(
     byCommand({
       'adb devices -l': recorded('api-36/host/adb-devices-l.txt'),
@@ -27,12 +35,20 @@ function emulator(displays: readonly string[]) {
       ),
       [`${ADB} shell input keyevent KEYCODE_BACK`]: {},
       [`${ADB} shell cmd statusbar collapse`]: {},
+      [`${ADB} exec-out uiautomator dump /dev/tty`]: screens.map((stdout) => ({
+        stdout,
+      })),
     }),
   )
   return context
 }
 
-async function cli(args: string[], displays: readonly string[], isTTY = true) {
+async function cli(
+  args: string[],
+  displays: readonly string[],
+  isTTY = true,
+  screens?: string[],
+) {
   const out: string[] = []
   const errors: string[] = []
   const io = {
@@ -40,7 +56,7 @@ async function cli(args: string[], displays: readonly string[], isTTY = true) {
     err: (text: string) => errors.push(text),
     isTTY,
   }
-  const code = await run(args, io, registry, emulator(displays))
+  const code = await run(args, io, registry, emulator(displays, screens))
   return { code, out: out.join('\n'), errors: errors.join('\n') }
 }
 
@@ -82,5 +98,19 @@ describe('dismiss', () => {
         ],
       },
     })
+  })
+
+  it("names the app's overlay by its label", async () => {
+    const { code, out } = await cli(
+      ['dismiss', '--app', 'host.exp.exponent'],
+      [MAIN],
+      true,
+      [OVERLAY, APP],
+    )
+
+    expect(code).toBe(0)
+    expect(out).toMatch(
+      /^Closed the app's overlay "Close overlay" with Back \(\d+ ms\)\.$/,
+    )
   })
 })

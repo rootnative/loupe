@@ -4,10 +4,12 @@ import { appField, deviceField } from '../core/device'
 import { waitedSchema, waitFields, withWaited } from '../core/wait'
 import { selectAndroidDevice } from '../drivers/android/devices'
 import {
+  type Closed,
   describeClosed,
   describeLayer,
   DISMISS_WAYS,
   dismissAndroid,
+  type Layer,
   LAYERS,
   MAX_LAYERS,
 } from '../drivers/android/dismiss'
@@ -16,11 +18,17 @@ import { waitAfterAction } from '../drivers/android/wait'
 const layerSchema = z
   .enum(LAYERS)
   .describe(
-    `keyboard. stylus-sheet: the "Try out your stylus" sheet of Gboard's stylus mode, which a stylus touch starts (on an emulator, loupe's double-tap, drag and pinch are one). app-dialog: a dialog or a modal of the app. share-sheet: the system share sheet. permission-dialog: Android doesn't count Back as a denial, and the app's request can stay with no answer. notification-shade: also with the quick settings open. not-responding: an "isn't responding" dialog, of any app.`,
+    `keyboard. stylus-sheet: the "Try out your stylus" sheet of Gboard's stylus mode, which a stylus touch starts (on an emulator, loupe's double-tap, drag and pinch are one). app-dialog: a dialog or a modal of the app. app-overlay: a menu, a sheet or a dialog that the app draws in its own window, found by its scrim or outside-press region: a node over the whole screen with a label and a touch. share-sheet: the system share sheet. permission-dialog: Android doesn't count Back as a denial, and the app's request can stay with no answer. notification-shade: also with the quick settings open. not-responding: an "isn't responding" dialog, of any app.`,
   )
 
 const closedSchema = z.object({
   layer: layerSchema,
+  label: z
+    .string()
+    .optional()
+    .describe(
+      'The label of the scrim or the outside-press region of an app-overlay.',
+    ),
   way: z
     .enum(DISMISS_WAYS)
     .describe(
@@ -33,10 +41,28 @@ const closedSchema = z.object({
     ),
 })
 
+function summaryOf(
+  app: string | undefined,
+  closed: readonly Closed[],
+  next: Layer | undefined,
+): string {
+  if (closed.length === 0) {
+    return `Nothing is open${app ? ` over ${app}` : ''}: loupe sent no key.`
+  }
+  const done = `Closed ${closed.map(describeClosed).join(', then ')}.`
+  if (!next) return done
+  const name = describeLayer(next)
+  const then =
+    closed.length < MAX_LAYERS
+      ? 'run dismiss again, or dismiss --all'
+      : `loupe stops after ${MAX_LAYERS} layers`
+  return `${done} ${name[0]?.toUpperCase()}${name.slice(1)} shows now: ${then}.`
+}
+
 export const dismissCommand = defineCommand({
   name: 'dismiss',
   summary:
-    'Close the top layer over the app: the keyboard, a dialog, a system sheet or the notification shade. With --all, each layer',
+    "Close the top layer over the app: the keyboard, a dialog, the app's own menu or sheet, a system sheet or the notification shade. With --all, each layer",
   input: z.object({
     all: z
       .boolean()
@@ -66,6 +92,7 @@ export const dismissCommand = defineCommand({
         `The layer that shows now, when loupe stopped before the app: one call closes one layer, and --all stops after ${MAX_LAYERS}.`,
       ),
     waited: waitedSchema.optional(),
+    warnings: z.array(z.string()).optional(),
   }),
   run: async ({ all, app, device, ...wait }, context) => {
     const target = await selectAndroidDevice(context, device)
@@ -73,22 +100,9 @@ export const dismissCommand = defineCommand({
     const waited = await waitAfterAction(target, app, wait, 'dismiss')
     return { ...result, waited }
   },
-  format: ({ app, closed, next, waited }) => {
-    const over = app ? ` over ${app}` : ''
-    if (closed.length === 0) {
-      return withWaited(`Nothing is open${over}: loupe sent no key.`, waited)
-    }
-    const done = `Closed ${closed.map(describeClosed).join(', then ')}.`
-    if (!next) return withWaited(done, waited)
-
-    const name = describeLayer(next)
-    const then =
-      closed.length < MAX_LAYERS
-        ? 'run dismiss again, or dismiss --all'
-        : `loupe stops after ${MAX_LAYERS} layers`
-    return withWaited(
-      `${done} ${name[0]?.toUpperCase()}${name.slice(1)} shows now: ${then}.`,
-      waited,
-    )
-  },
+  format: ({ app, closed, next, waited, warnings }) =>
+    [
+      withWaited(summaryOf(app, closed, next), waited),
+      ...(warnings ?? []).map((line) => `Warning: ${line}`),
+    ].join('\n'),
 })

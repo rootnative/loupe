@@ -384,6 +384,7 @@ async function checkProbeApp(metro) {
   checkSweep()
   checkSweepScroll()
   checkOverlay()
+  checkOverlayDismiss()
   checkSlop()
   checkGateSweep()
   const ltr = saveLtrScreens()
@@ -536,6 +537,28 @@ function checkOverlay() {
     `check on /overlay: each rule passes with the scrim over the insets (scrim ${scrim ? `${Math.round(scrim.frame.width)} × ${Math.round(scrim.frame.height)} dp` : 'not in the tree'}; exit ${checked.exit}; failed: ${failed.join(', ') || 'none'})`,
   )
   if (!passed) keepScreen('overlay.png')
+}
+
+/**
+ * `dismiss` on `/overlay`, with the overlay still open from `checkOverlay`:
+ * its scrim is the app's own overlay, so Back closes it (`app-overlay`, with
+ * the scrim's label); then nothing is open, and no key goes.
+ */
+function checkOverlayDismiss() {
+  const first = loupe('dismiss', '--app', EXPO_GO)
+  const shown = loupe('wait', '--text', 'overlay closed', '--app', EXPO_GO)
+  const second = loupe('dismiss', '--app', EXPO_GO)
+  const label = first.data?.closed?.[0]?.label
+  const passed =
+    closedBy(first) === 'app-overlay/back' &&
+    label === 'Close overlay' &&
+    shown.ok &&
+    closedBy(second) === 'none'
+  check(
+    passed,
+    `dismiss on /overlay: Back closes the app's overlay, then nothing is open (${closedBy(first)} "${label}"; ${shown.ok ? 'overlay closed shows' : 'overlay closed not shown'}; then ${closedBy(second)})`,
+  )
+  if (!passed) keepScreen('overlay-dismiss.png')
 }
 
 /**

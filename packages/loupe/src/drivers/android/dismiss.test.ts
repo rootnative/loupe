@@ -12,6 +12,18 @@ const NOT_RESPONDING =
   'Application Not Responding: com.google.android.apps.nexuslauncher'
 const FAST = { limit: 0, interval: 0 }
 const FOCUS = /mCurrentFocus=Window\{\S+ u0 [^}]+\}/
+const NOT_IDLE = { stdout: 'ERROR: could not get idle state.\n' }
+
+/** Round 5: the probe app in Expo Go, portrait, with nothing over it. */
+function appDump(level: number): string {
+  return recordedText(`api-${level}/probe/night/light/last.ui-tty.txt`)
+}
+
+/** The app's dump with one more node over the whole screen, on top. */
+function withFullScreen(dump: string, attributes: string): string {
+  const node = `<node index="9" text="" resource-id="scrim" class="android.widget.Button" package="${EXPO_GO}" checkable="false" checked="false" enabled="true" focusable="true" focused="false" scrollable="false" long-clickable="false" password="false" selected="false" bounds="[0,0][1080,2400]" ${attributes} />`
+  return dump.replace('</hierarchy>', `${node}</hierarchy>`)
+}
 
 /** The dump with the focus on this window. */
 function focusOn(dump: string, id: string, title: string): string {
@@ -86,6 +98,7 @@ function emulator(
       ),
       [`${adb} shell input keyevent KEYCODE_BACK`]: {},
       [`${adb} shell cmd statusbar collapse`]: {},
+      [`${adb} exec-out uiautomator dump /dev/tty`]: { stdout: appDump(level) },
       ...Object.fromEntries(
         Object.entries(more).map(([args, run]) => [`${adb} ${args}`, run]),
       ),
@@ -113,6 +126,79 @@ describe.each(API_LEVELS)('dismissAndroid, on API %i', (level) => {
     expect(await dismissAndroid(await target(), EXPO_GO, FAST)).toEqual({
       app: EXPO_GO,
       closed: [],
+    })
+    expect(sent()).toEqual([])
+  })
+
+  it('closes an overlay that the app draws in its own window, with Back', async () => {
+    const overlay = withFullScreen(
+      appDump(level),
+      'content-desc="Close overlay" clickable="true"',
+    )
+    const { target, sent } = emulator(level, [dumps.main], {
+      'exec-out uiautomator dump /dev/tty': [
+        { stdout: overlay },
+        { stdout: appDump(level) },
+      ],
+    })
+
+    expect(await dismissAndroid(await target(), EXPO_GO, FAST)).toEqual({
+      app: EXPO_GO,
+      closed: [
+        {
+          layer: 'app-overlay',
+          label: 'Close overlay',
+          way: 'back',
+          ms: expect.any(Number),
+        },
+      ],
+    })
+    expect(sent()).toEqual(['input keyevent KEYCODE_BACK'])
+  })
+
+  it('sends no key for a full-screen touch with no label', async () => {
+    const wrapper = withFullScreen(
+      appDump(level),
+      'content-desc="" clickable="true"',
+    )
+    const { target, sent } = emulator(level, [dumps.main], {
+      'exec-out uiautomator dump /dev/tty': { stdout: wrapper },
+    })
+
+    expect(await dismissAndroid(await target(), EXPO_GO, FAST)).toEqual({
+      app: EXPO_GO,
+      closed: [],
+    })
+    expect(sent()).toEqual([])
+  })
+
+  it("fails when the app's overlay stays after Back", async () => {
+    const overlay = withFullScreen(
+      appDump(level),
+      'content-desc="Close menu" clickable="true"',
+    )
+    const { target } = emulator(level, [dumps.main], {
+      'exec-out uiautomator dump /dev/tty': { stdout: overlay },
+    })
+
+    await expect(
+      dismissAndroid(await target(), EXPO_GO, FAST),
+    ).rejects.toMatchObject({
+      code: 'timeout',
+      message:
+        "The app's overlay still shows 0 ms after loupe tried to close it with Back.",
+    })
+  })
+
+  it("sends no key, and says why, when the app's screen never keeps still", async () => {
+    const { target, sent } = emulator(level, [dumps.main], {
+      'exec-out uiautomator dump /dev/tty': NOT_IDLE,
+    })
+
+    expect(await dismissAndroid(await target(), EXPO_GO, FAST)).toEqual({
+      app: EXPO_GO,
+      closed: [],
+      warnings: [expect.stringContaining('never kept still')],
     })
     expect(sent()).toEqual([])
   })
