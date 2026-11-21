@@ -281,6 +281,7 @@ async function checkProbeApp(metro) {
   )
   loupe('rotate', 'portrait')
   checkSweep()
+  checkSweepScroll()
   checkTheme()
   await checkAppState()
   await checkSheets()
@@ -343,6 +344,61 @@ function checkSweep() {
     `sweep: 2 links × 2 orientations, the centred defect found and its twin passed (exit ${swept.exit}; ${data?.screens} screens; failed: ${failures.map(({ number, variant, rules, error }) => `${number} ${variant} ${error ?? rules.join('+')}`).join(', ') || 'none'}; ${sheets.filter(Boolean).length} sheets; ${shots.filter(Boolean).length} screenshots)`,
   )
   if (!passed) keepScreen('sweep.png')
+}
+
+/**
+ * `sweep --scroll` on the probe app's long list: the close button shows
+ * only after a scroll. The defect is found on the scrolled screen alone,
+ * each screen comes back to its top with no warning, and the list shows
+ * its first row at the end.
+ */
+function checkSweepScroll() {
+  const folder = path.join(out, 'sweep-scroll')
+  const link = (variant) => `exp://127.0.0.1:${PORT}/--/scroll/${variant}`
+  const swept = loupe(
+    'sweep',
+    '--url',
+    link('defect'),
+    '--url',
+    link('fixed'),
+    '--scroll',
+    '--out',
+    folder,
+    '--app',
+    EXPO_GO,
+  )
+  const data = swept.data
+  const failures = data?.failures ?? []
+  let report
+  try {
+    report = JSON.parse(readFileSync(path.join(folder, 'report.json'), 'utf8'))
+  } catch {
+    report = undefined
+  }
+  const screens = report?.screens ?? []
+  const warnings = screens.flatMap((screen) => screen.warnings)
+  const sheet = data?.variants?.[0]?.scrolledSheet
+  const nodes = loupe('ui', '--app', EXPO_GO).data?.nodes ?? []
+  const firstRow = findNode(nodes, (node) => node.id === 'row-1')
+  const passed =
+    swept.exit === 1 &&
+    data?.screens === 4 &&
+    screens.map((screen) => screen.scrolled).join() ===
+      'false,true,false,true' &&
+    failures.length === 1 &&
+    failures[0].number === 1 &&
+    failures[0].scrolled === true &&
+    failures[0].rules.join() === 'touch-target' &&
+    !failures[0].error &&
+    warnings.length === 0 &&
+    sheet !== undefined &&
+    pngSize(sheet) !== undefined &&
+    firstRow !== undefined
+  check(
+    passed,
+    `sweep --scroll: the defect found after the scroll only, each screen back at its top (exit ${swept.exit}; ${data?.screens} screens; failed: ${failures.map(({ number, scrolled, rules, error }) => `${number}${scrolled ? ' scrolled' : ''} ${error ?? rules.join('+')}`).join(', ') || 'none'}; warnings: ${warnings.join(' ') || 'none'}; first row ${firstRow ? 'shown' : 'not shown'})`,
+  )
+  if (!passed) keepScreen('sweep-scroll.png')
 }
 
 /**

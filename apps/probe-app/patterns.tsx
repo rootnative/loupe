@@ -52,7 +52,10 @@ export function patternOf(route: string): PatternProps | undefined {
  * doLeftAndRightSwapInRTL is on, and insets are physical. So a fixed layout
  * writes each side inset under the key that lands on that side.
  */
-function sideInsets(insets: EdgeInsets): { left: number; right: number } {
+export function sideInsets(insets: EdgeInsets): {
+  left: number
+  right: number
+} {
   const swap = I18nManager.isRTL && I18nManager.doLeftAndRightSwapInRTL
   return swap
     ? { left: insets.right, right: insets.left }

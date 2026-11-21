@@ -64,15 +64,33 @@ interface Script {
   /** No screenshot after an error. */
   noCapture?: boolean
   restore?: string[]
+  /** The links whose screen scrolls. */
+  scrolls?: string[]
+  /** The links whose screen fails a rule after the scroll. */
+  defectsBelow?: string[]
+  /** The links that give this error on the scroll. */
+  scrollErrors?: Record<string, LoupeError>
+  /** What the scroll back gives: warnings, or an error. */
+  back?: string[] | LoupeError
 }
 
 function fakeDriver(
-  { defects = [], errors = {}, noCapture, restore = [] }: Script = {},
+  {
+    defects = [],
+    errors = {},
+    noCapture,
+    restore = [],
+    scrolls = [],
+    defectsBelow = [],
+    scrollErrors = {},
+    back = [],
+  }: Script = {},
   start: DeviceLook = { orientation: 'portrait', theme: 'light' },
 ) {
   const calls: string[] = []
   const look = { ...start }
   let url = ''
+  let below = false
   const driver: SweepDriver = {
     look: async () => ({ ...start }),
     open: async (link) => {
@@ -93,12 +111,30 @@ function fakeDriver(
       if (error) throw error
     },
     check: async () => ({
-      check: checkOf(look.orientation, !defects.includes(url)),
+      check: checkOf(
+        look.orientation,
+        !(below ? defectsBelow : defects).includes(url),
+      ),
       png: shot(),
     }),
     capture: async () => {
       if (noCapture) throw new LoupeError('app_not_in_front', 'Not in front.')
       return shot()
+    },
+    scroll: async () => {
+      calls.push(`scroll ${url}`)
+      const error = scrollErrors[url]
+      if (error) throw error
+      if (!scrolls.includes(url)) return undefined
+      below = true
+      return {
+        back: async () => {
+          calls.push(`back ${url}`)
+          below = false
+          if (back instanceof LoupeError) throw back
+          return back
+        },
+      }
     },
     restore: async (to, changed) => {
       calls.push(
@@ -130,6 +166,7 @@ describe('sweep', () => {
       `open ${B}`,
       'restore portrait light false false',
     ])
+    expect(report.variants[0]).not.toHaveProperty('scrolledSheet')
     expect(report).toMatchObject({
       out: folder,
       passed: false,
@@ -312,5 +349,127 @@ describe('sweep', () => {
     expect(report.screens[99]?.screenshot).toBe(
       path.join(folder, 'portrait-light', '100.png'),
     )
+  })
+
+  it('checks each screen again after one scroll down, and scrolls back', async () => {
+    const folder = path.join(out, 'scroll')
+    const { driver, calls } = fakeDriver({ scrolls: [A], defectsBelow: [A] })
+
+    const report = await sweep(driver, {
+      urls: [A, B],
+      out: folder,
+      scroll: true,
+    })
+
+    expect(calls).toEqual([
+      `open ${A}`,
+      `scroll ${A}`,
+      `back ${A}`,
+      `open ${B}`,
+      `scroll ${B}`,
+      'restore portrait light false false',
+    ])
+    expect(report.screens).toMatchObject([
+      {
+        number: 1,
+        url: A,
+        scrolled: false,
+        passed: true,
+        screenshot: path.join(folder, 'portrait-light', '01.png'),
+      },
+      {
+        number: 1,
+        url: A,
+        scrolled: true,
+        passed: false,
+        check: { passed: false },
+        screenshot: path.join(folder, 'portrait-light', '01-scrolled.png'),
+        warnings: [],
+      },
+      { number: 2, url: B, scrolled: false, passed: true },
+    ])
+    expect(report.passed).toBe(false)
+    expect(report.variants).toEqual([
+      expect.objectContaining({
+        sheet: path.join(folder, 'portrait-light.png'),
+        scrolledSheet: path.join(folder, 'portrait-light-scrolled.png'),
+        screens: 3,
+        failed: 1,
+      }),
+    ])
+    // One 240 × 480 thumbnail in a red frame: only link 1 scrolled.
+    const sheet = report.variants[0]?.scrolledSheet ?? ''
+    expect(pngSize(readFileSync(sheet))).toEqual({ width: 264, height: 504 })
+    expect(pixel(sheet, 8 + 247, 8 + 487)).toEqual(RED)
+  })
+
+  it('keeps the error of a scroll, and the warnings of the way back', async () => {
+    const { driver } = fakeDriver({
+      scrolls: [B],
+      scrollErrors: {
+        [A]: new LoupeError('not_idle', 'The screen never kept still.'),
+      },
+      back: ['The top did not come back.'],
+    })
+
+    const report = await sweep(driver, {
+      urls: [A, B],
+      out: path.join(out, 'scroll-errors'),
+      scroll: true,
+    })
+
+    expect(report.screens).toMatchObject([
+      { url: A, scrolled: false, passed: true },
+      {
+        url: A,
+        scrolled: true,
+        passed: false,
+        error: { code: 'not_idle', message: 'The screen never kept still.' },
+        screenshot: expect.stringMatching(/01-scrolled\.png$/),
+      },
+      { url: B, scrolled: false, passed: true },
+      {
+        url: B,
+        scrolled: true,
+        passed: true,
+        warnings: ['The top did not come back.'],
+      },
+    ])
+  })
+
+  it('warns when loupe could not scroll back to the top', async () => {
+    const { driver } = fakeDriver({
+      scrolls: [A],
+      back: new LoupeError('app_not_in_front', 'Another app is in front.'),
+    })
+
+    const report = await sweep(driver, {
+      urls: [A],
+      out: path.join(out, 'scroll-back'),
+      scroll: true,
+    })
+
+    expect(report.screens[1]?.warnings).toEqual([
+      "loupe couldn't scroll back to the top, so the next check of this link can start lower down: Another app is in front.",
+    ])
+  })
+
+  it('scrolls no screen that loupe could not open', async () => {
+    const { driver, calls } = fakeDriver({
+      scrolls: [A],
+      errors: {
+        [A]: new LoupeError('timeout', "The screen didn't keep still."),
+      },
+    })
+
+    const report = await sweep(driver, {
+      urls: [A],
+      out: path.join(out, 'scroll-none'),
+      scroll: true,
+    })
+
+    expect(calls).not.toContain(`scroll ${A}`)
+    expect(report.screens).toHaveLength(1)
+    expect(report.variants[0]).not.toHaveProperty('scrolledSheet')
   })
 })

@@ -13,6 +13,7 @@ import {
   useSafeAreaInsets,
 } from 'react-native-safe-area-context'
 import { PatternScreen, patternOf } from './patterns'
+import { ScrollScreen, scrollVariantOf } from './scroll'
 import { SheetsScreen } from './sheets'
 
 /**
@@ -63,8 +64,10 @@ export default function App() {
   const { route, links } = useRoute()
   const states = useAppStates()
   const pattern = patternOf(route)
+  const scroll = scrollVariantOf(route)
   let screen = <Screen />
   if (pattern) screen = <PatternScreen {...pattern} />
+  if (scroll) screen = <ScrollScreen variant={scroll} />
   if (route === '/appstate') {
     screen = <AppStateScreen states={states} links={links} />
   }

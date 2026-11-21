@@ -7,6 +7,7 @@ import { type AndroidTarget } from './devices'
 import { readAndroidDisplay, rotateAndroid } from './display'
 import { openUrlAndroid } from './open-url'
 import { captureAndroid } from './screenshot'
+import { flingToTopAndroid, scrollOnceAndroid } from './scroll'
 import {
   readThemeAndroid,
   restoreThemeAndroid,
@@ -79,6 +80,12 @@ export function androidSweepDriver(
       return { check, png }
     },
     capture: async () => (await captureAndroid(target, app)).png,
+    scroll: async () => {
+      const scrolled = await scrollOnceAndroid(target, app)
+      return (
+        scrolled && { back: () => flingToTopAndroid(target, scrolled, app) }
+      )
+    },
     restore: async (look, changed) => [
       ...(changed.orientation
         ? await orWarning(async () => {

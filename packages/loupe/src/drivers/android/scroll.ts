@@ -14,10 +14,11 @@ import {
   scrollViewFor,
   viewContent,
 } from '../../core/scroll'
-import { type UiNode } from '../../core/ui'
-import { intersection } from '../../core/units'
+import { scrollAxisOf, type UiNode } from '../../core/ui'
+import { intersection, type Rect } from '../../core/units'
 import { type AndroidTarget } from './devices'
 import { dragAndroid } from './gesture'
+import { swipeAndroid } from './touch'
 import { readAndroidUi } from './ui'
 
 /**
@@ -25,6 +26,12 @@ import { readAndroidUi } from './ui'
  * Android sees no speed and the list doesn't fling past the element.
  */
 const STROKE = { duration: 300, holdStart: 0, holdEnd: 250 }
+
+/** A swipe this fast lets the list fling on after the lift. */
+const FLING_MS = 100
+
+/** The most fast swipes that bring a scroll view back to its top. */
+const MAX_FLINGS = 3
 
 export interface ScrollOptions {
   direction: ScrollDirection
@@ -134,4 +141,59 @@ export async function scrollToAndroid(
     }
     await scroll()
   }
+}
+
+export interface ScrolledOnce {
+  /** The frame of the scroll view. */
+  frame: Rect
+  /** What the view showed before the scroll, from `viewContent`. */
+  top: string
+}
+
+/**
+ * Drags the largest vertical scroll view down by one stroke, as
+ * `scroll-to` does. Gives undefined when the screen has none, or when the
+ * view shows the same after the drag.
+ */
+export async function scrollOnceAndroid(
+  target: AndroidTarget,
+  app?: string,
+): Promise<ScrolledOnce | undefined> {
+  const ui = await readAndroidUi(target, app)
+  const view = scrollViewFor(ui.nodes, 'down', ui.display.size)
+  if (!view || scrollAxisOf(view) !== 'y') return undefined
+
+  const top = viewContent(ui.nodes, view.frame)
+  const { from, to } = scrollStroke(view.frame, 'down')
+  await dragAndroid(target, from, to, STROKE, app)
+  const after = await readAndroidUi(target, app)
+  return viewContent(after.nodes, view.frame) === top
+    ? undefined
+    : { frame: view.frame, top }
+}
+
+/**
+ * Swipes fast toward the top until the view shows what it showed before
+ * the scroll, `MAX_FLINGS` times at most, and less when the view stops
+ * moving. Gives a warning when the top doesn't come back.
+ */
+export async function flingToTopAndroid(
+  target: AndroidTarget,
+  { frame, top }: ScrolledOnce,
+  app?: string,
+): Promise<string[]> {
+  const { from, to } = scrollStroke(frame, 'up')
+  let shown: string | undefined
+  let flings = 0
+  while (flings < MAX_FLINGS) {
+    await swipeAndroid(target, from, to, FLING_MS, app)
+    flings += 1
+    const now = viewContent((await readAndroidUi(target, app)).nodes, frame)
+    if (now === top) return []
+    if (now === shown) break
+    shown = now
+  }
+  return [
+    `The scroll view didn't show its top again after ${flings} fast ${flings === 1 ? 'swipe' : 'swipes'} up, so the next check of this link can start lower down.`,
+  ]
 }

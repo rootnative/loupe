@@ -23,6 +23,12 @@ export interface DeviceLook {
   theme: string
 }
 
+/** A scroll view that `scroll` moved down, to bring back to its top. */
+export interface Scrolled {
+  /** Gives a warning when the top doesn't come back. */
+  back(): Promise<string[]>
+}
+
 /** What a sweep needs from a device. Each call is for the app under test. */
 export interface SweepDriver {
   look(): Promise<DeviceLook>
@@ -37,6 +43,11 @@ export interface SweepDriver {
   check(): Promise<{ check: ScreenCheck; png: Buffer }>
   /** A screenshot alone, for a screen that loupe couldn't check. */
   capture(): Promise<Buffer>
+  /**
+   * Scrolls the largest vertical scroll view down once. Gives undefined
+   * when the screen has none, or when the view doesn't move.
+   */
+  scroll(): Promise<Scrolled | undefined>
   /** Puts back what the sweep changed. Gives a warning for what stays. */
   restore(
     look: DeviceLook,
@@ -52,6 +63,8 @@ export interface SweepInput {
   themes?: readonly SweepTheme[]
   /** The folder for the report, the screenshots and the contact sheets. */
   out: string
+  /** Also check each screen after one scroll down. */
+  scroll?: boolean
 }
 
 export const sweepScreenSchema = z.object({
@@ -62,6 +75,11 @@ export const sweepScreenSchema = z.object({
     ),
   url: z.string(),
   variant: z.string().describe('The orientation and the theme: portrait-dark.'),
+  scrolled: z
+    .boolean()
+    .describe(
+      'True for the check after one scroll down. It comes right after the check of its link at the top.',
+    ),
   passed: z
     .boolean()
     .describe('True when loupe checked the screen and every rule passed.'),
@@ -79,7 +97,11 @@ export const sweepScreenSchema = z.object({
     .optional()
     .describe('The file. Left out when loupe could take no screenshot.'),
   warnings: z.array(z.string()),
-  ms: z.number().describe('Milliseconds for this screen, from the open.'),
+  ms: z
+    .number()
+    .describe(
+      'Milliseconds for this screen, from the open, or from the scroll for a scrolled screen.',
+    ),
 })
 
 export type SweepScreen = z.infer<typeof sweepScreenSchema>
@@ -93,7 +115,15 @@ export const sweepVariantSchema = z.object({
     .describe(
       'The contact sheet: a thumbnail of each screen with its number, in a red frame when the screen failed.',
     ),
-  screens: z.number(),
+  scrolledSheet: z
+    .string()
+    .optional()
+    .describe(
+      'The contact sheet of the scrolled screens, each with the number of its link. Left out when no screen scrolled.',
+    ),
+  screens: z
+    .number()
+    .describe('The screens checked: one for each link, and each scrolled one.'),
   failed: z.number(),
 })
 
@@ -132,16 +162,93 @@ function blank({ width, height }: { width: number; height: number }): Image {
   return { width, height, data }
 }
 
+type Cell = SheetCell | { number: number; failed: true }
+
+/** One contact sheet: each cell with no screenshot is dark. */
+async function writeSheet(file: string, cells: readonly Cell[]) {
+  const size = cells.find((cell) => 'image' in cell)?.image ?? NO_SHOT
+  const sheet = contactSheet(
+    cells.map((cell) =>
+      'image' in cell ? cell : { ...cell, image: blank(size) },
+    ),
+    { thumbnailWidth: THUMBNAIL_WIDTH },
+  )
+  return writeOutputFile(file, encodePng(sheet))
+}
+
+/** Keeps a loupe error in the screen, and takes a screenshot if it can. */
+async function failedScreen(
+  driver: SweepDriver,
+  screen: SweepScreen,
+  error: unknown,
+): Promise<Buffer | undefined> {
+  if (!(error instanceof LoupeError)) throw error
+  screen.error = { code: error.code, message: error.message }
+  return driver.capture().catch(() => undefined)
+}
+
+/**
+ * Runs `before`, waits until the screen keeps still, and checks it. Gives
+ * the screenshot.
+ */
+async function checkScreen(
+  driver: SweepDriver,
+  screen: SweepScreen,
+  before: () => Promise<void> = async () => {},
+): Promise<Buffer | undefined> {
+  try {
+    await before()
+    await driver.waitStill()
+    const checked = await driver.check()
+    screen.check = checked.check
+    screen.passed = checked.check.passed
+    return checked.png
+  } catch (error) {
+    return failedScreen(driver, screen, error)
+  }
+}
+
+/**
+ * Scrolls once, checks the screen, and scrolls back to the top: the next
+ * variant opens the same link, and the app can show the same screen. Gives
+ * undefined when the screen didn't scroll.
+ */
+async function checkScrolled(
+  driver: SweepDriver,
+  screen: SweepScreen,
+): Promise<{ png?: Buffer } | undefined> {
+  let scrolled: Scrolled | undefined
+  try {
+    scrolled = await driver.scroll()
+  } catch (error) {
+    return { png: await failedScreen(driver, screen, error) }
+  }
+  if (!scrolled) return undefined
+
+  const png = await checkScreen(driver, screen)
+  try {
+    screen.warnings.push(...(await scrolled.back()))
+  } catch (error) {
+    if (!(error instanceof LoupeError)) throw error
+    screen.warnings.push(
+      `loupe couldn't scroll back to the top, so the next check of this link can start lower down: ${error.message}`,
+    )
+  }
+  return { png }
+}
+
 /**
  * Opens each link in each variant (orientation × theme), waits until the
- * screen keeps still, runs the rules and keeps the screenshot. A screen
- * that loupe can't open or check gets its error in the report, and the
- * sweep goes on. At the end it writes one contact sheet for each variant
- * and `report.json`, and puts the orientation and the theme back.
+ * screen keeps still, runs the rules and keeps the screenshot. With
+ * `scroll`, it also checks each screen after one scroll down, then
+ * scrolls back. A screen that loupe can't open or check gets its error in
+ * the report, and the sweep goes on. At the end it writes the contact
+ * sheets of each variant and `report.json`, and puts the orientation and
+ * the theme back.
  */
 export async function sweep(
   driver: SweepDriver,
-  { urls, orientations, themes, out }: SweepInput,
+  { urls, orientations, themes, out, scroll }: SweepInput,
 ): Promise<SweepReport> {
   const folder = path.resolve(out)
   const start = await driver.look()
@@ -153,51 +260,31 @@ export async function sweep(
     for (const orientation of orientations ?? [start.orientation]) {
       for (const theme of themes ?? [start.theme]) {
         const name = `${orientation}-${theme}`
-        const cells: (SheetCell | { number: number; failed: true })[] = []
+        const topCells: Cell[] = []
+        const scrolledCells: Cell[] = []
+        let count = 0
         let failed = 0
 
-        for (const [index, url] of urls.entries()) {
-          const number = index + 1
-          const began = Date.now()
-          const screen: SweepScreen = {
-            number,
-            url,
-            variant: name,
-            passed: false,
-            warnings: [],
-            ms: 0,
-          }
-          let png: Buffer | undefined
-          try {
-            await driver.open(url)
-            if (orientations) await driver.rotate(orientation)
-            if (themes) {
-              screen.warnings.push(
-                ...(await driver.setTheme(theme as SweepTheme)),
-              )
-            }
-            await driver.waitStill()
-            const checked = await driver.check()
-            png = checked.png
-            screen.check = checked.check
-            screen.passed = checked.check.passed
-          } catch (error) {
-            if (!(error instanceof LoupeError)) throw error
-            screen.error = { code: error.code, message: error.message }
-            png = await driver.capture().catch(() => undefined)
-          }
-
+        const keep = async (
+          screen: SweepScreen,
+          png: Buffer | undefined,
+          began: number,
+        ) => {
           if (png) {
+            const file = `${fileNumber(screen.number, urls.length)}${screen.scrolled ? '-scrolled' : ''}.png`
             screen.screenshot = await writeOutputFile(
-              path.join(folder, name, `${fileNumber(number, urls.length)}.png`),
+              path.join(folder, name, file),
               png,
             )
           }
           screen.ms = Date.now() - began
           screens.push(screen)
+          count += 1
           if (!screen.passed) failed += 1
 
           const image = thumbnailOf(png)
+          const { number } = screen
+          const cells = screen.scrolled ? scrolledCells : topCells
           cells.push(
             image
               ? { number, image, failed: !screen.passed }
@@ -205,22 +292,49 @@ export async function sweep(
           )
         }
 
-        const size = cells.find((cell) => 'image' in cell)?.image ?? NO_SHOT
-        const sheet = contactSheet(
-          cells.map((cell) =>
-            'image' in cell ? cell : { ...cell, image: blank(size) },
-          ),
-          { thumbnailWidth: THUMBNAIL_WIDTH },
-        )
+        for (const [index, url] of urls.entries()) {
+          const screenOf = (scrolled: boolean): SweepScreen => ({
+            number: index + 1,
+            url,
+            variant: name,
+            scrolled,
+            passed: false,
+            warnings: [],
+            ms: 0,
+          })
+
+          const opened = Date.now()
+          const top = screenOf(false)
+          const png = await checkScreen(driver, top, async () => {
+            await driver.open(url)
+            if (orientations) await driver.rotate(orientation)
+            if (themes) {
+              top.warnings.push(...(await driver.setTheme(theme as SweepTheme)))
+            }
+          })
+          await keep(top, png, opened)
+          if (!scroll || top.error) continue
+
+          const began = Date.now()
+          const below = screenOf(true)
+          const shown = await checkScrolled(driver, below)
+          if (shown) await keep(below, shown.png, began)
+        }
+
         variants.push({
           name,
           orientation,
           theme,
-          sheet: await writeOutputFile(
-            path.join(folder, `${name}.png`),
-            encodePng(sheet),
-          ),
-          screens: urls.length,
+          sheet: await writeSheet(path.join(folder, `${name}.png`), topCells),
+          ...(scrolledCells.length > 0
+            ? {
+                scrolledSheet: await writeSheet(
+                  path.join(folder, `${name}-scrolled.png`),
+                  scrolledCells,
+                ),
+              }
+            : {}),
+          screens: count,
           failed,
         })
       }

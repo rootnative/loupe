@@ -41,7 +41,13 @@ function listOf<T extends string>(
 }
 
 const failureSchema = sweepScreenSchema
-  .pick({ number: true, url: true, variant: true, screenshot: true })
+  .pick({
+    number: true,
+    url: true,
+    variant: true,
+    scrolled: true,
+    screenshot: true,
+  })
   .extend({
     rules: z.array(z.string()).describe('The rules that failed.'),
     findings: z.number().describe('The findings of those rules.'),
@@ -97,6 +103,12 @@ export const sweepCommand = defineCommand({
       .describe(
         'The folder for report.json, the screenshots (<variant>/<number>.png) and the contact sheets (<variant>.png). Files that are there are replaced.',
       ),
+    scroll: z
+      .boolean()
+      .optional()
+      .describe(
+        'Also scroll each screen down once, by 60 % of its largest vertical scroll view, and check it again: <variant>/<number>-scrolled.png and <variant>-scrolled.png. Then loupe scrolls back to the top.',
+      ),
     waitTimeout: timeoutField.describe(
       `How long each screen can take to keep still after its link opens, in ms. ${DEFAULT_WAIT_TIMEOUT} by default.`,
     ),
@@ -113,7 +125,7 @@ export const sweepCommand = defineCommand({
         'report.json: each screen with its number, link, variant, the result of each rule with its numbers, and its screenshot.',
       ),
     passed: z.boolean().describe('True when every screen passed.'),
-    screens: z.number().describe('Links × variants.'),
+    screens: z.number().describe('Links × variants, and each scrolled screen.'),
     failed: z.number(),
     variants: z.array(sweepVariantSchema),
     failures: z
@@ -142,17 +154,24 @@ export const sweepCommand = defineCommand({
       androidSweepDriver(target, input.app, rules, {
         waitTimeout: input.waitTimeout ?? DEFAULT_WAIT_TIMEOUT,
       }),
-      { urls: input.url, orientations, themes, out: input.out },
+      {
+        urls: input.url,
+        orientations,
+        themes,
+        out: input.out,
+        scroll: input.scroll,
+      },
     )
 
     const failures = report.screens
       .filter((screen) => !screen.passed)
-      .map(({ number, url, variant, screenshot, check, error }) => {
+      .map(({ number, url, variant, scrolled, screenshot, check, error }) => {
         const failed = (check?.results ?? []).filter((result) => !result.passed)
         return {
           number,
           url,
           variant,
+          scrolled,
           screenshot,
           rules: failed.map((result) => result.rule),
           findings: failed.reduce(
@@ -181,12 +200,15 @@ export const sweepCommand = defineCommand({
         : `${failed} of ${screens} screens failed.`,
       ...variants.map(
         (variant) =>
-          `${variant.name}: ${variant.failed === 0 ? 'pass' : `${variant.failed} failed`}, contact sheet ${variant.sheet}`,
+          `${variant.name}: ${variant.failed === 0 ? 'pass' : `${variant.failed} failed`}, contact sheet ${variant.sheet}${variant.scrolledSheet ? `, scrolled ${variant.scrolledSheet}` : ''}`,
       ),
-      ...failures.map(({ number, url, variant, rules, findings, error }) =>
-        error
-          ? `  ${number} ${variant} ${url}: ${error}`
-          : `  ${number} ${variant} ${url}: ${rules.join(', ')} (${findings} findings)`,
+      ...failures.map(
+        ({ number, url, variant, scrolled, rules, findings, error }) => {
+          const where = `  ${number} ${variant}${scrolled ? ' scrolled' : ''} ${url}`
+          return error
+            ? `${where}: ${error}`
+            : `${where}: ${rules.join(', ')} (${findings} findings)`
+        },
       ),
       `Report: ${report}`,
       ...warnings.map((warning) => `Warning: ${warning}`),

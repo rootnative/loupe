@@ -59,7 +59,9 @@ async function swept(input: object) {
   return { data: sweepCommand.output.parse(result.data), calls }
 }
 
-describe('sweep', () => {
+// Each sweep decodes and checks recorded screenshots of 1080 × 2400 px. That
+// takes more than the default 5 s while other test files run at the same time.
+describe('sweep', { timeout: 30_000 }, () => {
   it('finds the defects of the patterns, and passes their fixed twins', async () => {
     const folder = path.join(out, 'patterns')
     const { data, calls } = await swept({
@@ -195,5 +197,63 @@ describe('sweep', () => {
       await run(args('overflow/fixed'), io, registry, emulator().context),
     ).toBe(0)
     expect(lines.join('\n')).toContain('1 screens, each one passed.')
+  })
+
+  it('checks no screen twice with scroll when no vertical scroll view shows', async () => {
+    const { data, calls } = await swept({
+      url: [link('overflow/defect'), link('centred/fixed')],
+      scroll: true,
+      out: path.join(out, 'scroll'),
+    })
+
+    // The overflow pattern has a horizontal scroll view only.
+    expect(data).toMatchObject({ screens: 2, failed: 1 })
+    expect(data.variants[0]).not.toHaveProperty('scrolledSheet')
+    expect(
+      calls.filter(
+        (call) => call.args[2] === 'emu' || call.args[3] === 'input',
+      ),
+    ).toEqual([])
+  })
+
+  it('names a scrolled screen and its contact sheet in the summary', () => {
+    const text = sweepCommand.format?.(
+      sweepCommand.output.parse({
+        out: '/tmp/s',
+        report: '/tmp/s/report.json',
+        passed: false,
+        screens: 2,
+        failed: 1,
+        variants: [
+          {
+            name: 'portrait-light',
+            orientation: 'portrait',
+            theme: 'light',
+            sheet: '/tmp/s/portrait-light.png',
+            scrolledSheet: '/tmp/s/portrait-light-scrolled.png',
+            screens: 2,
+            failed: 1,
+          },
+        ],
+        failures: [
+          {
+            number: 1,
+            url: 'app://a',
+            variant: 'portrait-light',
+            scrolled: true,
+            rules: ['touch-target'],
+            findings: 1,
+          },
+        ],
+        warnings: [],
+      }),
+    )
+
+    expect(text).toContain(
+      'portrait-light: 1 failed, contact sheet /tmp/s/portrait-light.png, scrolled /tmp/s/portrait-light-scrolled.png',
+    )
+    expect(text).toContain(
+      '  1 portrait-light scrolled app://a: touch-target (1 findings)',
+    )
   })
 })
