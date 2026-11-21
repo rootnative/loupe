@@ -7,6 +7,7 @@ import {
   type CheckedScreen,
   checkTouchTarget,
   describeResults,
+  isOverlay,
   rulesOf,
   type ScreenTree,
 } from './check'
@@ -168,6 +169,63 @@ describe('checkInset', () => {
         screen([root([node([49.8, 23.8, 100, 20], { text: 'Edge' })])]),
       ).passed,
     ).toBe(true)
+  })
+
+  it('leaves out an overlay that covers the screen, and checks what it holds', () => {
+    const scrim = node([0, 0, 900, 400], {
+      type: 'android.widget.Button',
+      label: 'Close sheet',
+      clickable: true,
+      children: [
+        node([60, 100, 200, 20], { text: 'Sheet title' }),
+        node([10, 200, 100, 20], { text: 'Under the cutout side' }),
+      ],
+    })
+    const bar = node([0, 0, 900, 64], { label: 'Toolbar' })
+
+    const result = checkInset(screen([root([bar, scrim])]))
+
+    expect(result.checked).toBe(3)
+    expect(result.findings.map((finding) => finding.message)).toEqual([
+      'label "Toolbar" reaches 24 dp into the top inset and 50 dp into the left inset.',
+      '"Under the cutout side" reaches 40 dp into the left inset.',
+    ])
+  })
+
+  it('leaves out an overlay that covers the tree where it ends short of the screen', () => {
+    const scrim = node([0, 0, 860, 400], {
+      label: 'Close menu',
+      clickable: true,
+    })
+
+    expect(
+      checkInset(
+        screen([
+          node([0, 0, 860, 400], {
+            type: 'android.widget.FrameLayout',
+            children: [scrim],
+          }),
+        ]),
+      ),
+    ).toMatchObject({ passed: true, checked: 0 })
+  })
+})
+
+describe('isOverlay', () => {
+  const tree = (overlay: UiNode) => screen([root([overlay])])
+
+  it('is a node with a label or a touch that covers the screen', () => {
+    const full = node([0, 0, 900, 400], { label: 'Close menu' })
+
+    expect(isOverlay(full, tree(full))).toBe(true)
+  })
+
+  it("isn't a node that leaves an edge free, or one with nothing to read or use", () => {
+    const short = node([0, 0, 900, 380], { label: 'Close menu' })
+    const plain = node([0, 0, 900, 400], { type: 'android.view.ViewGroup' })
+
+    expect(isOverlay(short, tree(short))).toBe(false)
+    expect(isOverlay(plain, tree(plain))).toBe(false)
   })
 })
 

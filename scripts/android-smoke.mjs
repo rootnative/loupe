@@ -383,6 +383,7 @@ async function checkProbeApp(metro) {
   loupe('rotate', 'portrait')
   checkSweep()
   checkSweepScroll()
+  checkOverlay()
   checkGateSweep()
   const ltr = saveLtrScreens()
   checkTheme()
@@ -503,6 +504,37 @@ function checkSweepScroll() {
     `sweep --scroll: the defect found after the scroll only, each screen back at its top (exit ${swept.exit}; ${data?.screens} screens; failed: ${failures.map(({ number, scrolled, rules, error }) => `${number}${scrolled ? ' scrolled' : ''} ${error ?? rules.join('+')}`).join(', ') || 'none'}; warnings: ${warnings.join(' ') || 'none'}; first row ${firstRow ? 'shown' : 'not shown'})`,
   )
   if (!passed) keepScreen('sweep-scroll.png')
+}
+
+/**
+ * `check` on the probe app's `/overlay`: a scrim over the whole screen and a
+ * panel in the safe area, as a component library draws a menu or a sheet.
+ * The scrim covers the insets on purpose, so each rule passes; the scrim
+ * must be in the tree, or the check proves nothing.
+ */
+function checkOverlay() {
+  const opened = loupe(
+    'open-url',
+    `exp://127.0.0.1:${PORT}/--/overlay`,
+    '--app',
+    EXPO_GO,
+    '--wait-text',
+    'Overlay panel',
+  )
+  const nodes = loupe('ui', '--app', EXPO_GO).data?.nodes ?? []
+  const scrim = findNode(nodes, (node) => node.label === 'Close overlay')
+  const checked = loupe('check', '--app', EXPO_GO)
+  const failed = failedRules(checked.data)
+  const passed =
+    opened.ok &&
+    scrim !== undefined &&
+    checked.exit === 0 &&
+    checked.data?.passed === true
+  check(
+    passed,
+    `check on /overlay: each rule passes with the scrim over the insets (scrim ${scrim ? `${Math.round(scrim.frame.width)} × ${Math.round(scrim.frame.height)} dp` : 'not in the tree'}; exit ${checked.exit}; failed: ${failed.join(', ') || 'none'})`,
+  )
+  if (!passed) keepScreen('overlay.png')
 }
 
 function patternLink(pattern, variant) {

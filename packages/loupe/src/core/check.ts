@@ -232,9 +232,24 @@ function name(node: UiNode): string {
 }
 
 /**
+ * True for a node with text, a label or a touch that covers the whole
+ * screen: a scrim, or the region that closes a menu on an outside press.
+ * Where the tree ends short of the screen (API 30), it covers the tree.
+ */
+export function isOverlay(node: UiNode, screen: ScreenTree): boolean {
+  return (
+    matters(node) &&
+    [screenRect(screen), treeArea(screen)].some(
+      (area) => edgesTouched(node.frame, area, screen).length === EDGES.length,
+    )
+  )
+}
+
+/**
  * `inset`: an element with text, a label or a touch reaches past the safe
  * area into a bar or the cutout. Inside a scroll view, the edges along its
- * axis don't count: content scrolls under the bars on purpose.
+ * axis don't count: content scrolls under the bars on purpose. An overlay
+ * (`isOverlay`) covers the insets on purpose, so only what it holds counts.
  */
 export function checkInset(screen: CheckedScreen): RuleResult {
   const { size } = screen.display
@@ -247,7 +262,8 @@ export function checkInset(screen: CheckedScreen): RuleResult {
   }
   const near = tolerance(screen)
   const checked = place(screen).filter(
-    ({ node }) => matters(node) && onScreen(node, screen),
+    ({ node }) =>
+      matters(node) && onScreen(node, screen) && !isOverlay(node, screen),
   )
 
   const findings = checked.flatMap(({ node, scrollAxes }): Finding[] => {

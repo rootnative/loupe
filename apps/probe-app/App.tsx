@@ -12,6 +12,7 @@ import {
   SafeAreaProvider,
   useSafeAreaInsets,
 } from 'react-native-safe-area-context'
+import { OverlayScreen } from './overlay'
 import { PatternScreen, patternOf } from './patterns'
 import { ScrollScreen, scrollVariantOf } from './scroll'
 import { SheetsScreen } from './sheets'
@@ -72,6 +73,7 @@ export default function App() {
     screen = <AppStateScreen states={states} links={links} />
   }
   if (route === '/sheets') screen = <SheetsScreen />
+  if (route === '/overlay') screen = <OverlayScreen />
   return (
     <SafeAreaProvider>
       {screen}
