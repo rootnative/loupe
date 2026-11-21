@@ -1,16 +1,33 @@
 import { describe, expect, it, vi } from 'vitest'
 import { type LoupeError } from '../../core/errors'
 import { byCommand, type FakeRun, fakeContext } from '../../testing/fake-exec'
-import { API_LEVELS, recorded } from '../../testing/fixtures'
+import { API_LEVELS, recorded, recordedText } from '../../testing/fixtures'
 import { selectAndroidDevice } from './devices'
 import { isAppWindow, whileInFront } from './foreground'
 
 const SETTINGS = 'com.android.settings'
+const ADVICE =
+  'is in front. Close it with "loupe dismiss" (a tap on Wait), then try again.'
 
 function dump(level: number, screen: 'settings' | 'home'): FakeRun {
   return recorded(
     `api-${level}/none/rotation-1/${screen}/dumpsys-window-displays.txt`,
   )
+}
+
+/** The Settings dump, with the focus on the "isn't responding" dialog of `app`. */
+function notResponding(level: number, app: string): FakeRun {
+  const text = recordedText(
+    `api-${level}/none/rotation-1/settings/dumpsys-window-displays.txt`,
+  )
+  const focus = /mCurrentFocus=Window\{(\S+) u0 [^}]+\}/
+  if (!focus.test(text)) throw new Error(`No focus line on API ${level}.`)
+  return {
+    stdout: text.replace(
+      focus,
+      `mCurrentFocus=Window{$1 u0 Application Not Responding: ${app}}`,
+    ),
+  }
 }
 
 function emulator(level: number, dumps: readonly FakeRun[]) {
@@ -92,6 +109,33 @@ describe.each(API_LEVELS)('whileInFront, on API %i', (level) => {
     expect(take).not.toHaveBeenCalled()
   })
 
+  it('points to dismiss when an "isn\'t responding" dialog is in front', async () => {
+    const { target } = emulator(level, [notResponding(level, SETTINGS)])
+    const take = vi.fn(async () => 'png')
+
+    await expect(
+      whileInFront(await target(), SETTINGS, take),
+    ).rejects.toMatchObject({
+      code: 'app_not_in_front',
+      message: `${SETTINGS} isn't in front, so loupe does nothing on emulator-5554. An "isn't responding" dialog for ${SETTINGS} ${ADVICE}`,
+    })
+    expect(take).not.toHaveBeenCalled()
+  })
+
+  it('points to dismiss when the dialog shows during the capture', async () => {
+    const { target } = emulator(level, [
+      dump(level, 'settings'),
+      notResponding(level, SETTINGS),
+    ])
+
+    await expect(
+      whileInFront(await target(), SETTINGS, async () => 'png'),
+    ).rejects.toMatchObject({
+      code: 'app_not_in_front',
+      message: `The focus moved away from ${SETTINGS} during the capture, so loupe dropped it. An "isn't responding" dialog for ${SETTINGS} ${ADVICE}`,
+    })
+  })
+
   it('drops the capture when the focus moves during it', async () => {
     const { target } = emulator(level, [
       dump(level, 'settings'),
@@ -147,5 +191,25 @@ describe('whileInFront', () => {
 
     expect(error).toMatchObject({ code: 'app_not_in_front' })
     expect(error?.message).not.toContain('nexuslauncher')
+  })
+})
+
+describe('whileInFront, on a phone', () => {
+  it('names the app under test in the dialog advice, and no other app', async () => {
+    const own = phone([notResponding(35, SETTINGS)])
+    const other = phone([notResponding(35, 'com.example.mail')])
+
+    await expect(
+      whileInFront(await own.target(), SETTINGS, async () => 'png'),
+    ).rejects.toMatchObject({
+      message: expect.stringContaining(
+        `An "isn't responding" dialog for ${SETTINGS} ${ADVICE}`,
+      ),
+    })
+    await expect(
+      whileInFront(await other.target(), SETTINGS, async () => 'png'),
+    ).rejects.toMatchObject({
+      message: `${SETTINGS} isn't in front, so loupe does nothing on PHONE123. An "isn't responding" dialog ${ADVICE}`,
+    })
   })
 })

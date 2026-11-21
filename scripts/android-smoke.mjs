@@ -9,6 +9,10 @@
 // closes. For that it downloads Expo Go from Expo, and starts Metro on
 // localhost.
 //
+// A busy emulator can show an "isn't responding" dialog over the app under
+// test. The run closes it as an agent does, with `loupe dismiss`, keeps a
+// screenshot and the ANR lines of logcat, and runs the step once more.
+//
 // Run it on an emulator only, with the pixel_6 profile of the workflow, after
 // `pnpm install` and the build. Don't run it on a phone: it turns the screen,
 // touches Settings and the home screen, and installs Expo Go.
@@ -44,9 +48,11 @@ const ADB = process.env.ANDROID_HOME
   : 'adb'
 const SETTINGS = 'com.android.settings'
 const EDGES = ['top', 'right', 'bottom', 'left']
+const NOT_RESPONDING = 'Application Not Responding: '
 
 let failures = 0
 let runs = 0
+let dialogs = 0
 
 function adb(...args) {
   const result = spawnSync(ADB, args, { encoding: 'utf8', timeout: 60_000 })
@@ -67,16 +73,49 @@ function focus() {
 /**
  * Waits up to 15 s for a window whose title has `part`, and gives the last
  * title and the wait. On a busy emulator a new page can take a few seconds,
- * and no window has the focus in that time.
+ * and no window has the focus in that time. An "isn't responding" dialog
+ * closes, 3 at most, and each one starts the 15 s again.
  */
 async function waitForFocus(part) {
   const start = Date.now()
+  let since = start
+  let closed = 0
   let seen = focus()
-  while (!seen.includes(part) && Date.now() - start < 15_000) {
-    await sleep(500)
+  while (!seen.includes(part) && Date.now() - since < 15_000) {
+    if (closed < 3 && closeNotResponding(`the wait for ${part}`)) {
+      closed += 1
+      since = Date.now()
+    } else {
+      await sleep(500)
+    }
     seen = focus()
   }
   return { seen: seen || 'no window', ms: Date.now() - start }
+}
+
+/**
+ * Closes the "isn't responding" dialog that has the focus, if one has it:
+ * keeps a screenshot and the ANR lines of logcat, then runs `loupe
+ * dismiss`, which taps Wait. Gives true when the dialog closed.
+ */
+function closeNotResponding(during) {
+  const title = focus()
+  if (!title.startsWith(NOT_RESPONDING)) return false
+  dialogs += 1
+  keepScreen(`not-responding-${dialogs}.png`)
+  try {
+    writeFileSync(
+      path.join(out, `not-responding-${dialogs}.logcat.txt`),
+      adb('logcat', '-d', '-s', 'ActivityManager:E'),
+    )
+  } catch (error) {
+    console.log(`No logcat for dialog ${dialogs}: ${error.message}`)
+  }
+  const closed = runLoupe('dismiss')
+  console.log(
+    `"${title}" showed during ${during}: ${closed.ok ? 'loupe dismiss closed it' : "loupe dismiss didn't close it"} (dialog ${dialogs}).`,
+  )
+  return closed.ok
 }
 
 /** A screenshot through adb, for a check that failed. */
@@ -87,8 +126,25 @@ function keepScreen(name) {
   if (result.status === 0) writeFileSync(path.join(out, name), result.stdout)
 }
 
-/** Runs one command, keeps its JSON, and gives the result and the exit code. */
+/**
+ * Runs one command (`runLoupe`). When it gives `app_not_in_front` because
+ * an "isn't responding" dialog has the focus, it closes the dialog and runs
+ * the command once more.
+ */
 function loupe(...args) {
+  const result = runLoupe(...args)
+  if (
+    result.error?.code !== 'app_not_in_front' ||
+    !closeNotResponding(`loupe ${args[0]}`)
+  ) {
+    return result
+  }
+  console.log(`loupe ${args[0]} runs once more.`)
+  return runLoupe(...args)
+}
+
+/** Runs one command, keeps its JSON, and gives the result and the exit code. */
+function runLoupe(...args) {
   const result = spawnSync(process.execPath, [BIN, ...args, '--json'], {
     encoding: 'utf8',
     // A sweep opens and checks 4 screens in one call.
@@ -857,4 +913,9 @@ console.log(
     ? `All checks passed on API level ${apiLevel}.`
     : `${failures} checks failed on API level ${apiLevel}.`,
 )
+if (dialogs > 0) {
+  console.log(
+    `${dialogs} "isn't responding" ${dialogs === 1 ? 'dialog' : 'dialogs'} closed: see not-responding-*.png and *.logcat.txt.`,
+  )
+}
 process.exit(failures === 0 ? 0 : 1)

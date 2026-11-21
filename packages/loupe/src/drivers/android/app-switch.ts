@@ -2,7 +2,7 @@ import { setTimeout as sleep } from 'node:timers/promises'
 import { LoupeError } from '../../core/errors'
 import { type AndroidTarget } from './devices'
 import { readWindowDisplay } from './display'
-import { isAppWindow, readInFront } from './foreground'
+import { isAppWindow, notRespondingAdvice, readInFront } from './foreground'
 import { parseRecentTasks, type RecentTask } from './parse'
 
 /**
@@ -138,9 +138,10 @@ export async function foregroundAndroid(
   const back = await focusUntil(target, (now) => isAppWindow(now, app), options)
   await target.adb.run(['shell', 'am', 'task', 'lock', 'stop'])
   if (!back) {
+    const { focus: now } = await readWindowDisplay(target)
     throw new LoupeError(
       'app_not_in_front',
-      `${app} isn't back in front after ${tried.join(' and ')} on ${target.serial}.`,
+      `${app} isn't back in front after ${tried.join(' and ')} on ${target.serial}.${notRespondingAdvice(target, now, app)}`,
     )
   }
   return { way: 'task-lock', tried, task: task.id, ms: Date.now() - start }

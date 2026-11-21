@@ -7,6 +7,7 @@ import { dumpWindowDisplays, windowDisplayOf } from './display'
 import { requireAppOnDevice } from './foreground'
 import {
   type InsetSource,
+  NOT_RESPONDING,
   parseWindowInsets,
   parseWindowList,
   type WindowDisplay,
@@ -112,7 +113,6 @@ export function describeClosed({ layer, way, ms }: Closed): string {
 }
 
 const SHARE_SHEET_PACKAGES = new Set(['android', 'com.android.intentresolver'])
-const NOT_RESPONDING = 'Application Not Responding: '
 const IME_TYPES = new Set(['ime', 'ITYPE_IME'])
 const WAIT_BUTTON = 'android:id/aerr_wait'
 const CANCEL_BUTTON = 'android:id/closeButton'

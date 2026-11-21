@@ -151,6 +151,20 @@ describe('foregroundAndroid', () => {
     expect(stuck.sent().at(-1)).toBe('am task lock stop')
   })
 
+  it('points to dismiss when the app shows an "isn\'t responding" dialog', async () => {
+    const hung = emulator(
+      [LAUNCHER, `Application Not Responding: ${EXPO_GO}`],
+      HOME_RECENTS,
+    )
+
+    await expect(
+      foregroundAndroid(await hung.target(), EXPO_GO, FAST),
+    ).rejects.toMatchObject({
+      code: 'app_not_in_front',
+      message: `${EXPO_GO} isn't back in front after recents and task-lock on emulator-5554. An "isn't responding" dialog for ${EXPO_GO} is in front. Close it with "loupe dismiss" (a tap on Wait), then try again.`,
+    })
+  })
+
   it("doesn't lock a task on a phone that asks for the lock screen to end it", async () => {
     const { target, sent } = emulator(
       [LAUNCHER, LAUNCHER],

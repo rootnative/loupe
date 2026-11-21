@@ -9,6 +9,21 @@ export interface AdbDeviceEntry {
   fields: Record<string, string>
 }
 
+/** The start of the focus title while an "isn't responding" dialog shows. */
+export const NOT_RESPONDING = 'Application Not Responding: '
+
+/**
+ * The package that an "isn't responding" dialog names, from the focus
+ * title, or undefined for another window.
+ */
+export function notRespondingPackage(
+  title: string | undefined,
+): string | undefined {
+  return title?.startsWith(NOT_RESPONDING)
+    ? title.slice(NOT_RESPONDING.length)
+    : undefined
+}
+
 /** One display, as `dumpsys window displays` gives it. Sizes are in px. */
 export interface WindowDisplay {
   /** The natural orientation, with a size override if there is one. */
