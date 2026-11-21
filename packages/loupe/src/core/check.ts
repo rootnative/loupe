@@ -33,6 +33,13 @@ export type RuleName = (typeof RULES)[number]
 /** The smallest touch target on Android, in dp (48 × 48). */
 export const MIN_TOUCH_TARGET = 48
 
+/**
+ * A touch target at most this much under the minimum can be whole with a
+ * hitSlop, which the tree doesn't show: from 40 dp for 48, as a 40 dp icon
+ * button with a 4 dp hitSlop on each side. It gives a warning, no finding.
+ */
+export const HIT_SLOP_BAND = 8
+
 /** `centred` finds an element more than this off centre, in dp. */
 export const CENTRE_TOLERANCE = 4
 
@@ -63,7 +70,9 @@ export const ruleResultSchema = z.object({
   warnings: z
     .array(z.string())
     .optional()
-    .describe('Elements that you named, but the rule could not check.'),
+    .describe(
+      'Notes that are no finding: an element that you named but the rule could not check, or a touch target that a hitSlop can make whole.',
+    ),
 })
 
 export type RuleResult = z.infer<typeof ruleResultSchema>
@@ -300,7 +309,8 @@ export function checkInset(screen: CheckedScreen): RuleResult {
 /**
  * `touch-target`: an element that takes a touch is smaller than 48 dp on
  * an axis. On an axis where it touches the edge of the screen or of the
- * tree, uiautomator may have clipped it, so that axis doesn't count.
+ * tree, uiautomator may have clipped it, so that axis doesn't count. From
+ * 40 dp up (`HIT_SLOP_BAND`) it's a warning: a hitSlop can make it whole.
  */
 export function checkTouchTarget(screen: CheckedScreen): RuleResult {
   const checked = place(screen).filter(
@@ -309,31 +319,43 @@ export function checkTouchTarget(screen: CheckedScreen): RuleResult {
   )
   const near = tolerance(screen)
   const areas = [screenRect(screen), treeArea(screen)]
+  const findings: Finding[] = []
+  const warnings: string[] = []
 
-  const findings = checked.flatMap(({ node }): Finding[] => {
+  for (const { node } of checked) {
     const clipped = new Set(
       areas
         .flatMap((area) => edgesTouched(node.frame, area, screen))
         .map((edge) => AXIS_OF[edge]),
     )
     const { width, height } = node.frame
-    const small =
-      (!clipped.has('x') && width < MIN_TOUCH_TARGET - near) ||
-      (!clipped.has('y') && height < MIN_TOUCH_TARGET - near)
-    if (!small) return []
-    return [
-      {
-        element: toElement(node),
-        message: `${name(node)} is ${round2(width)} × ${round2(height)} dp; a touch target needs ${MIN_TOUCH_TARGET} × ${MIN_TOUCH_TARGET} dp.`,
-        details: { width, height, min: MIN_TOUCH_TARGET },
-      },
+    const trusted = [
+      ...(clipped.has('x') ? [] : [width]),
+      ...(clipped.has('y') ? [] : [height]),
     ]
-  })
+    const smallest = Math.min(...trusted)
+    if (smallest >= MIN_TOUCH_TARGET - near) continue
+
+    const size = `${name(node)} is ${round2(width)} × ${round2(height)} dp`
+    if (smallest >= MIN_TOUCH_TARGET - HIT_SLOP_BAND - near) {
+      const slop = (MIN_TOUCH_TARGET - smallest) / 2
+      warnings.push(
+        `${size}; a hitSlop of ${round2(slop)} dp on each side makes it ${round2(width + 2 * slop)} × ${round2(height + 2 * slop)} dp, but the tree doesn't show hitSlop.`,
+      )
+      continue
+    }
+    findings.push({
+      element: toElement(node),
+      message: `${size}; a touch target needs ${MIN_TOUCH_TARGET} × ${MIN_TOUCH_TARGET} dp.`,
+      details: { width, height, min: MIN_TOUCH_TARGET },
+    })
+  }
   return {
     rule: 'touch-target',
     passed: findings.length === 0,
     checked: checked.length,
     findings,
+    ...(warnings.length > 0 ? { warnings } : {}),
   }
 }
 

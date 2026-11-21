@@ -16,6 +16,7 @@ import { OverlayScreen } from './overlay'
 import { PatternScreen, patternOf } from './patterns'
 import { ScrollScreen, scrollVariantOf } from './scroll'
 import { SheetsScreen } from './sheets'
+import { SlopScreen } from './slop'
 
 /**
  * The route of a link: `exp://127.0.0.1:8081/--/inset/defect` gives
@@ -74,6 +75,7 @@ export default function App() {
   }
   if (route === '/sheets') screen = <SheetsScreen />
   if (route === '/overlay') screen = <OverlayScreen />
+  if (route === '/slop') screen = <SlopScreen />
   return (
     <SafeAreaProvider>
       {screen}

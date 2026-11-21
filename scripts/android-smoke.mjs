@@ -384,6 +384,7 @@ async function checkProbeApp(metro) {
   checkSweep()
   checkSweepScroll()
   checkOverlay()
+  checkSlop()
   checkGateSweep()
   const ltr = saveLtrScreens()
   checkTheme()
@@ -535,6 +536,37 @@ function checkOverlay() {
     `check on /overlay: each rule passes with the scrim over the insets (scrim ${scrim ? `${Math.round(scrim.frame.width)} × ${Math.round(scrim.frame.height)} dp` : 'not in the tree'}; exit ${checked.exit}; failed: ${failed.join(', ') || 'none'})`,
   )
   if (!passed) keepScreen('overlay.png')
+}
+
+/**
+ * `check --rules touch-target` on the probe app's `/slop`: the 24 dp button
+ * is a finding; the 40 dp one with a 4 dp hitSlop is a warning that names
+ * the 4 dp, and no finding.
+ */
+function checkSlop() {
+  loupe(
+    'open-url',
+    `exp://127.0.0.1:${PORT}/--/slop`,
+    '--app',
+    EXPO_GO,
+    '--wait-text',
+    'Slop',
+  )
+  const checked = loupe('check', '--rules', 'touch-target', '--app', EXPO_GO)
+  const [result] = checked.data?.results ?? []
+  const findings = (result?.findings ?? []).map(({ element }) => element.label)
+  const warnings = result?.warnings ?? []
+  const passed =
+    checked.exit === 1 &&
+    findings.join() === 'Small button' &&
+    warnings.length === 1 &&
+    warnings[0].startsWith('label "Slop button" is 40 × 40 dp') &&
+    warnings[0].includes('a hitSlop of 4 dp on each side')
+  check(
+    passed,
+    `check --rules touch-target on /slop: the 24 dp button found, the 40 dp one a warning (exit ${checked.exit}; findings: ${findings.join(', ') || 'none'}; warnings: ${warnings.join(' | ') || 'none'})`,
+  )
+  if (!passed) keepScreen('slop.png')
 }
 
 function patternLink(pattern, variant) {

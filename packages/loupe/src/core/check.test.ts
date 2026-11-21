@@ -230,7 +230,7 @@ describe('isOverlay', () => {
 })
 
 describe('checkTouchTarget', () => {
-  it('finds a touch target under 48 dp', () => {
+  it('finds a touch target under 40 dp', () => {
     const result = checkTouchTarget(
       screen([
         root([node([100, 100, 24, 24], { label: 'Close', clickable: true })]),
@@ -245,6 +245,40 @@ describe('checkTouchTarget', () => {
         details: { width: 24, height: 24, min: 48 },
       },
     ])
+  })
+
+  it('gives a warning, no finding, from 40 dp: a hitSlop can make it 48 dp', () => {
+    const result = checkTouchTarget(
+      screen([
+        root([
+          node([100, 100, 40, 40], { label: 'More', clickable: true }),
+          node([200, 100, 120, 44], { label: 'Chip', clickable: true }),
+        ]),
+      ]),
+    )
+
+    expect(result).toMatchObject({ passed: true, checked: 2, findings: [] })
+    expect(result.warnings).toEqual([
+      'label "More" is 40 × 40 dp; a hitSlop of 4 dp on each side makes it 48 × 48 dp, but the tree doesn\'t show hitSlop.',
+      'label "Chip" is 120 × 44 dp; a hitSlop of 2 dp on each side makes it 124 × 48 dp, but the tree doesn\'t show hitSlop.',
+    ])
+  })
+
+  it('finds a target under 40 dp on one axis, and takes half a pixel as rounding at 40', () => {
+    const result = checkTouchTarget(
+      screen([
+        root([
+          node([100, 100, 48, 39], { label: 'Thin', clickable: true }),
+          node([200, 100, 39.8, 48], { label: 'Rounded', clickable: true }),
+        ]),
+      ]),
+    )
+
+    expect(result.findings.map((finding) => finding.element.label)).toEqual([
+      'Thin',
+    ])
+    expect(result.warnings).toHaveLength(1)
+    expect(result.warnings?.[0]).toMatch(/^label "Rounded"/)
   })
 
   it('passes 48 dp, and an element that takes no touch', () => {
