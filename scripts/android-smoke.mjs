@@ -7,7 +7,10 @@
 // that the safe area of the probe is the system's in portrait and in both
 // landscapes, then the theme, the app switch and the sheets that `dismiss`
 // closes. For that it downloads Expo Go from Expo, and starts Metro on
-// localhost.
+// localhost. Last comes the gate of the checks: each defect pattern of the
+// probe app must fail its rule and each fixed twin must pass, in LTR with
+// `sweep`, then in RTL (Metro again with PROBE_APP_RTL=1) with `check
+// --mirror-of` against the LTR screens.
 //
 // A busy emulator can show an "isn't responding" dialog over the app under
 // test. The run closes it as an agent does, with `loupe dismiss`, keeps a
@@ -49,6 +52,29 @@ const ADB = process.env.ANDROID_HOME
 const SETTINGS = 'com.android.settings'
 const EDGES = ['top', 'right', 'bottom', 'left']
 const NOT_RESPONDING = 'Application Not Responding: '
+const VARIANTS = ['defect', 'fixed']
+
+// The gate: the rule that the defect of each probe app pattern must fail in
+// LTR. Its fixed twin passes every rule. The two `sides` screens differ only
+// in RTL, so in LTR both pass.
+const GATE_RULES = {
+  inset: 'inset',
+  sheet: 'inset',
+  sides: undefined,
+  overflow: 'overflow',
+  target: 'touch-target',
+  centred: 'centred',
+}
+// On API 30 in landscape the uiautomator tree ends short of the screen, and
+// loupe can't see these defects past that cut (round 6).
+const API_30_BLIND = new Set(['overflow', 'target', 'centred', 'sides'])
+// The screens of the RTL part, each against its LTR run: [orientation,
+// pattern]. In RTL, the defect of each must fail `mirrored`.
+const MIRROR_SCREENS = [
+  ['portrait', 'mirrored'],
+  ['landscape-left', 'mirrored'],
+  ['landscape-left', 'sides'],
+]
 
 let failures = 0
 let runs = 0
@@ -147,8 +173,8 @@ function loupe(...args) {
 function runLoupe(...args) {
   const result = spawnSync(process.execPath, [BIN, ...args, '--json'], {
     encoding: 'utf8',
-    // A sweep opens and checks 4 screens in one call.
-    timeout: 300_000,
+    // The gate's sweep opens and checks 24 screens in one call.
+    timeout: 600_000,
   })
   runs += 1
   const name = `${String(runs).padStart(2, '0')}-${args[0]}.json`
@@ -223,19 +249,34 @@ async function settle() {
   )
 }
 
+// With `wanted`, the link goes again this often while nothing shows: on
+// Android 14 and later, a cold start of Expo Go in RTL lands on its home
+// screen, and the second open shows the app (round 6).
+const OPEN_AGAIN_MS = 20_000
+
 /**
  * Reads the screen with `loupe ui` until the probe shows, for up to `limit`
- * ms. On the first open, Expo Go shows its developer menu: a sheet with a
- * "Continue" button, then the menu with a "Close" button. A busy emulator can
- * show an "isn't responding" dialog for another app. The dump of each has
- * none of the app, so loupe taps each button, as an agent does.
+ * ms; with `wanted`, until it shows that route in that direction, and the
+ * link goes again every 20 s. On the first open, Expo Go shows its developer
+ * menu: a sheet with a "Continue" button, then the menu with a "Close"
+ * button. A busy emulator can show an "isn't responding" dialog for another
+ * app. The dump of each has none of the app, so loupe taps each button, as
+ * an agent does.
  */
-async function waitForProbe(limit) {
+async function waitForProbe(limit, wanted) {
   const start = Date.now()
+  let openedAt = start
   let screen
   do {
     screen = loupe('ui')
-    if (screen.data?.probe) return { screen, ms: Date.now() - start }
+    const probe = screen.data?.probe
+    if (
+      probe &&
+      (!wanted ||
+        (probe.route === wanted.route && probe.direction === wanted.direction))
+    ) {
+      return { screen, ms: Date.now() - start }
+    }
 
     const nodes = screen.data?.nodes ?? []
     const has = (test) => findNode(nodes, test) !== undefined
@@ -245,6 +286,10 @@ async function waitForProbe(limit) {
       loupe('tap', '--text', 'Continue', '--app', EXPO_GO)
     } else if (has((node) => node.text === 'Go home')) {
       loupe('tap', '--label', 'Close', '--app', EXPO_GO)
+    } else if (wanted && Date.now() - openedAt >= OPEN_AGAIN_MS) {
+      console.log(`The focus is on ${focus()}: the link goes again.`)
+      loupe('open-url', wanted.link, '--app', EXPO_GO)
+      openedAt = Date.now()
     }
     await sleep(1000)
   } while (Date.now() - start < limit)
@@ -338,9 +383,12 @@ async function checkProbeApp(metro) {
   loupe('rotate', 'portrait')
   checkSweep()
   checkSweepScroll()
+  checkGateSweep()
+  const ltr = saveLtrScreens()
   checkTheme()
   await checkAppState()
   await checkSheets()
+  return ltr
 }
 
 /**
@@ -455,6 +503,186 @@ function checkSweepScroll() {
     `sweep --scroll: the defect found after the scroll only, each screen back at its top (exit ${swept.exit}; ${data?.screens} screens; failed: ${failures.map(({ number, scrolled, rules, error }) => `${number}${scrolled ? ' scrolled' : ''} ${error ?? rules.join('+')}`).join(', ') || 'none'}; warnings: ${warnings.join(' ') || 'none'}; first row ${firstRow ? 'shown' : 'not shown'})`,
   )
   if (!passed) keepScreen('sweep-scroll.png')
+}
+
+function patternLink(pattern, variant) {
+  return `exp://127.0.0.1:${PORT}/--/${pattern}/${variant}`
+}
+
+/** Opens a pattern screen, and waits for its caption. */
+function openPattern(pattern, variant) {
+  return loupe(
+    'open-url',
+    patternLink(pattern, variant),
+    '--app',
+    EXPO_GO,
+    '--wait-text',
+    `${pattern} · ${variant}`,
+  )
+}
+
+/**
+ * One screen of the gate: a fixed twin passes every rule, and a defect fails
+ * `rule`. A defect that loupe can't see on API 30 in landscape is a note,
+ * not a failure.
+ */
+function checkGateScreen(name, { pattern, variant, orientation, rule }, run) {
+  const shown = run.error ?? (run.failed.join(', ') || 'each rule passed')
+  if (run.error) {
+    check(false, `gate: ${name}: ${shown}`)
+  } else if (variant === 'fixed' || !rule) {
+    check(run.failed.length === 0, `gate: ${name} passes every rule (${shown})`)
+  } else if (
+    !run.failed.includes(rule) &&
+    apiLevel === 30 &&
+    orientation !== 'portrait' &&
+    API_30_BLIND.has(pattern)
+  ) {
+    console.log(
+      `note: gate: ${name} doesn't fail ${rule}: on API 30 in landscape the tree ends short, a known limit (${shown})`,
+    )
+  } else {
+    check(run.failed.includes(rule), `gate: ${name} fails ${rule} (${shown})`)
+  }
+}
+
+function failedRules(screenCheck) {
+  return (screenCheck?.results ?? [])
+    .filter((result) => !result.passed)
+    .map((result) => result.rule)
+}
+
+/**
+ * The LTR part of the gate: one `sweep` of each pattern but `mirrored`, both
+ * variants, in portrait and landscape-left.
+ */
+function checkGateSweep() {
+  const folder = path.join(out, 'gate')
+  const links = Object.keys(GATE_RULES).flatMap((pattern) =>
+    VARIANTS.map((variant) => patternLink(pattern, variant)),
+  )
+  const swept = loupe(
+    'sweep',
+    ...links.flatMap((link) => ['--url', link]),
+    '--orientation',
+    'portrait,landscape-left',
+    '--out',
+    folder,
+    '--app',
+    EXPO_GO,
+  )
+  let report
+  try {
+    report = JSON.parse(readFileSync(path.join(folder, 'report.json'), 'utf8'))
+  } catch {
+    report = undefined
+  }
+  const screens = report?.screens ?? []
+  check(
+    swept.exit === 1 && screens.length === links.length * 2,
+    `gate: sweep of ${links.length} links in 2 orientations (exit ${swept.exit}; ${screens.length} screens)`,
+  )
+  const orientations = Object.fromEntries(
+    (report?.variants ?? []).map(({ name, orientation }) => [
+      name,
+      orientation,
+    ]),
+  )
+  for (const screen of screens) {
+    const [pattern, variant] = screen.url.split('/--/')[1].split('/')
+    const orientation = orientations[screen.variant]
+    checkGateScreen(
+      `${pattern}/${variant} in ${orientation}`,
+      { pattern, variant, orientation, rule: GATE_RULES[pattern] },
+      { failed: failedRules(screen.check), error: screen.error?.code },
+    )
+  }
+}
+
+/**
+ * Saves `loupe ui` of each screen of the RTL part, in LTR, for `check
+ * --mirror-of`. Gives each file by `<pattern>/<variant> <orientation>`.
+ */
+function saveLtrScreens() {
+  const files = {}
+  for (const [orientation, pattern] of MIRROR_SCREENS) {
+    loupe('rotate', orientation)
+    for (const variant of VARIANTS) {
+      const name = `${pattern}/${variant} ${orientation}`
+      openPattern(pattern, variant)
+      const screen = loupe('ui', '--app', EXPO_GO)
+      const probe = screen.data?.probe
+      const saved =
+        probe?.route === `/${pattern}/${variant}` &&
+        probe.direction === 'ltr' &&
+        screen.data.orientation === orientation
+      check(saved, `gate: ${name} saved in LTR`)
+      if (!saved) continue
+      const file = path.join(
+        out,
+        `ltr-${pattern}-${variant}-${orientation}.json`,
+      )
+      writeFileSync(file, JSON.stringify(screen.data))
+      files[name] = file
+    }
+  }
+  loupe('rotate', 'portrait')
+  return files
+}
+
+/**
+ * The RTL part of the gate. Metro starts again with PROBE_APP_RTL=1, which
+ * sets forcesRTL, and Expo Go stops, because it applies forcesRTL when it
+ * loads the app. Then `check --mirror-of` on each screen against its LTR
+ * file. The new Metro goes into `metros`, so the caller stops it.
+ */
+async function checkGateRtl(metros, files) {
+  await stopMetro(metros[0])
+  const metro = startMetro(path.join(out, 'metro-rtl.log'), {
+    PROBE_APP_RTL: '1',
+  })
+  metros.push(metro)
+  const warm = await warmMetro(metro)
+  adb('shell', 'am', 'force-stop', EXPO_GO)
+
+  const [, firstPattern] = MIRROR_SCREENS[0]
+  const link = patternLink(firstPattern, 'defect')
+  const route = `/${firstPattern}/defect`
+  loupe('open-url', link, '--app', EXPO_GO)
+  const first = await waitForProbe(180_000, { route, direction: 'rtl', link })
+  const probe = first.screen.data?.probe
+  const shown = probe?.route === route && probe.direction === 'rtl'
+  check(
+    shown,
+    `gate: the probe app in RTL after ${first.ms} ms (Metro warm after ${warm} ms)`,
+  )
+  if (!shown) {
+    keepScreen('gate-rtl-timeout.png')
+    return
+  }
+
+  for (const [orientation, pattern] of MIRROR_SCREENS) {
+    loupe('rotate', orientation)
+    for (const variant of VARIANTS) {
+      const name = `${pattern}/${variant} ${orientation}`
+      const file = files[name]
+      if (!file) {
+        check(false, `gate: ${name} in RTL: no LTR screen to compare`)
+        continue
+      }
+      openPattern(pattern, variant)
+      const checked = loupe('check', '--mirror-of', file, '--app', EXPO_GO)
+      checkGateScreen(
+        `${pattern}/${variant} in ${orientation}, RTL`,
+        { pattern, variant, orientation, rule: 'mirrored' },
+        {
+          failed: failedRules(checked.data),
+          error: checked.ok ? undefined : checked.error.code,
+        },
+      )
+    }
+  }
+  loupe('rotate', 'portrait')
 }
 
 /**
@@ -898,14 +1126,15 @@ check(
 
 // The probe app in Expo Go, after the other checks: Metro takes the CPU of
 // the runner for a while, and the gesture timings above need it.
-const metro = startMetro(path.join(out, 'metro.log'))
+const metros = [startMetro(path.join(out, 'metro.log'))]
 try {
-  await checkProbeApp(metro)
+  const ltr = await checkProbeApp(metros[0])
+  if (ltr) await checkGateRtl(metros, ltr)
 } catch (error) {
   check(false, `probe app: ${error instanceof Error ? error.message : error}`)
   keepScreen('probe-app-error.png')
 } finally {
-  await stopMetro(metro)
+  for (const metro of metros) await stopMetro(metro)
 }
 
 console.log(
