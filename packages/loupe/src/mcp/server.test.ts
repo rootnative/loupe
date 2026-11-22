@@ -3,7 +3,10 @@ import os from 'node:os'
 import path from 'node:path'
 import { PassThrough } from 'node:stream'
 import { Client } from '@modelcontextprotocol/client'
+import { SkillsClient } from '@modelcontextprotocol/client/ext/skills'
 import { InMemoryTransport, ProtocolError } from '@modelcontextprotocol/server'
+import { type SkillsExtension } from '@modelcontextprotocol/server/ext/skills'
+import { loadSkills } from '@modelcontextprotocol/server/ext/skills/node'
 import { serveStdio } from '@modelcontextprotocol/server/stdio'
 import { afterEach, describe, expect, it } from 'vitest'
 import { z } from 'zod'
@@ -14,7 +17,7 @@ import { type CommandContext } from '../core/context'
 import { throwIfCancelled } from '../core/errors'
 import { byCommand, fakeContext, missingTool } from '../testing/fake-exec'
 import { recorded } from '../testing/fixtures'
-import { createMcpServer, serveMcp } from './server'
+import { createMcpServer, INSTRUCTIONS, serveMcp, skillsFolder } from './server'
 
 const ERAS = [
   { protocol: '2025-11-25', options: {} },
@@ -34,9 +37,10 @@ async function connect(
   era: (typeof ERAS)[number],
   tools: Registry,
   context: CommandContext = fakeContext(() => undefined).context,
+  skills?: SkillsExtension,
 ): Promise<Client> {
   const [clientEnd, serverEnd] = InMemoryTransport.createLinkedPair()
-  const handle = serveStdio(() => createMcpServer(tools, context), {
+  const handle = serveStdio(() => createMcpServer(tools, context, { skills }), {
     transport: serverEnd,
   })
   const client = new Client({ name: 'test', version: '0.0.0' }, era.options)
@@ -57,6 +61,35 @@ describe.each(ERAS)('the MCP server, protocol $protocol', (era) => {
       name: 'loupe',
       version: pkg.version,
     })
+  })
+
+  it('gives the instructions with the ask-first rule', async () => {
+    const client = await connect(era, registry)
+
+    expect(client.getInstructions()).toBe(INSTRUCTIONS)
+    expect(INSTRUCTIONS).toContain(
+      'Ask the user before you start an emulator, and before you open an app or a link on a device.',
+    )
+  })
+
+  it('serves the loupe skill through the skills extension', async () => {
+    const warnings: string[] = []
+    const catalog = await loadSkills(skillsFolder(), {
+      onWarning: ({ message }) => warnings.push(message),
+    })
+    const client = await connect(era, registry, undefined, catalog)
+    const skills = new SkillsClient(client)
+
+    const listing = await skills.list()
+    const file = await skills.read(listing.skills[0]!)
+
+    expect(warnings).toEqual([])
+    expect(skills.supported).toBe(true)
+    expect(listing.skills.map((skill) => skill.frontmatter.name)).toEqual([
+      'loupe',
+    ])
+    expect(file.verified).toBe(true)
+    expect(file.body).toMatch(/^\s*# loupe\n/)
   })
 
   it('lists each command as a tool, with its schemas', async () => {

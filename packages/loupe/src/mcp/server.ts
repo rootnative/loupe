@@ -1,9 +1,14 @@
+import { existsSync } from 'node:fs'
+import path from 'node:path'
 import { type Readable, type Writable } from 'node:stream'
+import { fileURLToPath } from 'node:url'
 import {
+  McpServer,
   ProtocolError,
   ProtocolErrorCode,
-  Server,
 } from '@modelcontextprotocol/server'
+import { type SkillsExtension } from '@modelcontextprotocol/server/ext/skills'
+import { loadSkills } from '@modelcontextprotocol/server/ext/skills/node'
 import {
   serveStdio,
   StdioServerTransport,
@@ -19,6 +24,15 @@ import { runCommand } from '../core/run-command'
 import { version } from '../version'
 import { imageBlocks, toolResult, toolsOf } from './tools'
 
+/** What each MCP client shows its agent about loupe. The skill has the rest. */
+export const INSTRUCTIONS = [
+  'loupe checks the layout of a mobile app on an Android emulator or device. Its tools give numbers in dp.',
+  'Ask the user before you start an emulator, and before you open an app or a link on a device.',
+  'On a real phone, give `app` in each call.',
+  'Decide pass or fail with `check` or `sweep`, not from a screenshot alone.',
+  'The loupe skill (skills/loupe/SKILL.md in the package) has the workflow, the rules, and what to do for each error code.',
+].join(' ')
+
 /** Runs each task after the one before it ends. */
 export type Serial = <T>(task: () => Promise<T>) => Promise<T>
 
@@ -32,20 +46,48 @@ export function serial(): Serial {
 }
 
 /**
+ * The `skills` folder of the package. The search goes up to the folder
+ * with `package.json`, because the code runs from `src` in tests and from
+ * `dist` in the package.
+ */
+export function skillsFolder(): string {
+  let dir = path.dirname(fileURLToPath(import.meta.url))
+  for (;;) {
+    if (existsSync(path.join(dir, 'package.json'))) {
+      return path.join(dir, 'skills')
+    }
+    const up = path.dirname(dir)
+    if (up === dir) throw new Error("loupe can't find its package folder.")
+    dir = up
+  }
+}
+
+export interface McpServerOptions {
+  /** One for each process: calls of all servers run one at a time. */
+  oneAtATime?: Serial
+  /** The skills that the server serves through the skills extension. */
+  skills?: SkillsExtension
+}
+
+/**
  * An MCP server with each command of the registry as a tool. Calls run one
  * at a time: two touches at the same time on one device lose events.
  */
 export function createMcpServer(
   registry: Registry,
   context: CommandContext,
-  oneAtATime: Serial = serial(),
-): Server {
+  { oneAtATime = serial(), skills }: McpServerOptions = {},
+): McpServer {
   const tools = toolsOf(registry)
   const byName = new Map(tools.map((tool) => [tool.name, tool]))
-  const server = new Server(
+  // With no `tools` capability in its options, `McpServer` leaves the tool
+  // methods to loupe: `runCommand` stays the one check of each call.
+  const mcp = new McpServer(
     { name: 'loupe', version },
-    { capabilities: { tools: {} } },
+    { instructions: INSTRUCTIONS },
   )
+  const { server } = mcp
+  server.registerCapabilities({ tools: {} })
 
   server.setRequestHandler('tools/list', () => ({ tools }))
   server.setRequestHandler('tools/call', async (request, ctx) => {
@@ -85,7 +127,8 @@ export function createMcpServer(
     return server.projectCallToolResult(output, tool.outputSchema)
   })
 
-  return server
+  skills?.attach(mcp)
+  return mcp
 }
 
 export interface ServeOptions {
@@ -97,10 +140,10 @@ export interface ServeOptions {
 }
 
 /**
- * Serves the tools over stdin and stdout, in each protocol version that
- * the SDK speaks. It ends when the client closes stdin.
+ * Serves the tools and the skill over stdin and stdout, in each protocol
+ * version that the SDK speaks. It ends when the client closes stdin.
  */
-export function serveMcp(options: ServeOptions = {}): Promise<void> {
+export async function serveMcp(options: ServeOptions = {}): Promise<void> {
   const {
     registry = defaultRegistry,
     context = createContext(),
@@ -109,18 +152,31 @@ export function serveMcp(options: ServeOptions = {}): Promise<void> {
     onerror,
   } = options
   const oneAtATime = serial()
+  // A client can close stdin before the SDK makes a server, and then no
+  // server closes.
+  const ended = new Promise<void>((resolve) => stdin.once('end', resolve))
 
-  return new Promise((resolve) => {
-    // A client can close stdin before the SDK makes a server, and then no
-    // server closes.
-    stdin.once('end', () => resolve())
+  const skills = await loadSkills(skillsFolder(), {
+    onWarning: ({ path: file, message }) =>
+      onerror?.(new Error(`The skill at ${file}: ${message}`)),
+  }).catch((error: unknown) => {
+    onerror?.(
+      new Error(
+        `loupe serves no skill: ${error instanceof Error ? error.message : String(error)}`,
+      ),
+    )
+    return undefined
+  })
+
+  const closed = new Promise<void>((resolve) => {
     serveStdio(
       () => {
-        const server = createMcpServer(registry, context, oneAtATime)
-        server.onclose = () => resolve()
-        return server
+        const mcp = createMcpServer(registry, context, { oneAtATime, skills })
+        mcp.server.onclose = resolve
+        return mcp
       },
       { transport: new StdioServerTransport(stdin, stdout), onerror },
     )
   })
+  await Promise.race([ended, closed])
 }
