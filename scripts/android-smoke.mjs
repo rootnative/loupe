@@ -10,7 +10,8 @@
 // localhost. Last comes the gate of the checks: each defect pattern of the
 // probe app must fail its rule and each fixed twin must pass, in LTR with
 // `sweep`, then in RTL (Metro again with PROBE_APP_RTL=1) with `check
-// --mirror-of` against the LTR screens.
+// --mirror-of` against the LTR screens. Before the gate, an MCP client runs
+// the built `loupe mcp` on the probe app, in both protocol versions.
 //
 // A busy emulator can show an "isn't responding" dialog over the app under
 // test. The run closes it as an agent does, with `loupe dismiss`, keeps a
@@ -25,9 +26,10 @@
 // <out-dir>.
 
 import { spawnSync } from 'node:child_process'
-import { mkdirSync, readFileSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import path from 'node:path'
 import { setTimeout as sleep } from 'node:timers/promises'
+import { SkillsClient } from '@modelcontextprotocol/client/ext/skills'
 import {
   EXPO_GO,
   installExpoGo,
@@ -36,6 +38,7 @@ import {
   stopMetro,
   warmMetro,
 } from './lib/expo-go.mjs'
+import { connectMcp, firstJson } from './lib/mcp.mjs'
 
 const [out, level] = process.argv.slice(2)
 if (!out || !level) {
@@ -386,6 +389,7 @@ async function checkProbeApp(metro) {
   checkOverlay()
   checkOverlayDismiss()
   checkSlop()
+  await checkMcp()
   checkGateSweep()
   const ltr = saveLtrScreens()
   checkTheme()
@@ -590,6 +594,152 @@ function checkSlop() {
     `check --rules touch-target on /slop: the 24 dp button found, the 40 dp one a warning (exit ${checked.exit}; findings: ${findings.join(', ') || 'none'}; warnings: ${warnings.join(' | ') || 'none'})`,
   )
   if (!passed) keepScreen('slop.png')
+}
+
+/**
+ * The MCP server: an MCP client starts the built `loupe mcp`, once in each
+ * protocol version. Each lists the tools with their schemas, gives the
+ * instructions and the loupe skill, and runs `devices`. Then, in
+ * 2025-11-25: `screenshot` gives its PNG as an image block; `sweep` of the
+ * centred pattern sends a progress note for each screen; a `wait` that
+ * runs out is a tool error with its code; and a `sweep` that the client
+ * cancels after its first screen puts the screen back in portrait, with
+ * no report.
+ */
+async function checkMcp() {
+  const clients = []
+  try {
+    for (const protocol of ['2025-11-25', '2026-07-28']) {
+      const client = await connectMcp(
+        BIN,
+        path.join(out, `mcp-${protocol}.stderr.txt`),
+        protocol === '2026-07-28' ? protocol : undefined,
+      )
+      clients.push(client)
+      const { tools } = await client.listTools()
+      const skills = await new SkillsClient(client).list()
+      const devices = await client.callTool({ name: 'devices', arguments: {} })
+      const names = tools.map((tool) => tool.name)
+      check(
+        client.getNegotiatedProtocolVersion() === protocol &&
+          ['check', 'screenshot', 'sweep'].every((name) =>
+            names.includes(name),
+          ) &&
+          tools.every((tool) => tool.outputSchema?.type === 'object') &&
+          (client.getInstructions() ?? '').includes(
+            'Ask the user before you start an emulator',
+          ) &&
+          skills.skills.map((skill) => skill.frontmatter.name).join() ===
+            'loupe' &&
+          (devices.structuredContent?.devices ?? []).some(
+            (device) => device.state === 'ready',
+          ),
+        `mcp ${protocol}: ${tools.length} tools with their schemas, the instructions, the skill, and a ready device`,
+      )
+    }
+    const [client] = clients
+    const long = { timeout: 600_000, resetTimeoutOnProgress: true }
+
+    const file = path.join(out, 'mcp-screenshot.png')
+    const shot = await client.callTool({
+      name: 'screenshot',
+      arguments: { out: file, scale: 0.5, app: EXPO_GO },
+    })
+    const image = shot.content.find((block) => block.type === 'image')
+    const same =
+      image !== undefined &&
+      existsSync(file) &&
+      Buffer.from(image.data, 'base64').equals(readFileSync(file))
+    check(
+      !shot.isError && same,
+      `mcp screenshot: the result holds the PNG file as an image block (${pngSize(file)?.width ?? 'no'} px wide)`,
+    )
+
+    const link = (variant) => `exp://127.0.0.1:${PORT}/--/centred/${variant}`
+    const updates = []
+    const swept = await client.callTool(
+      {
+        name: 'sweep',
+        arguments: {
+          url: [link('defect'), link('fixed')],
+          orientation: 'portrait,landscape-left',
+          out: path.join(out, 'mcp-sweep'),
+          app: EXPO_GO,
+        },
+      },
+      { ...long, onprogress: (update) => updates.push(update) },
+    )
+    const failed = swept.structuredContent?.failures ?? []
+    check(
+      !swept.isError &&
+        swept.structuredContent?.screens === 4 &&
+        failed.length > 0 &&
+        failed.every(({ number, error }) => number === 1 && !error) &&
+        updates.length === 4 &&
+        updates.every(
+          (update, index) =>
+            update.progress === index + 1 && update.total === 4,
+        ),
+      `mcp sweep: 4 screens, the defect found, a progress note after each screen (${updates.map((update) => update.message).join('; ') || 'no notes'})`,
+    )
+
+    const missing = await client.callTool({
+      name: 'wait',
+      arguments: { text: 'loupe smoke: no such text', timeout: 1000 },
+    })
+    const code = firstJson(missing)?.error?.code
+    check(
+      missing.isError === true && code === 'timeout',
+      `mcp wait: a wait that runs out is a tool error with its code (${code})`,
+    )
+
+    const folder = path.join(out, 'mcp-cancel')
+    const controller = new AbortController()
+    let noted = () => {}
+    const firstNote = new Promise((resolve) => (noted = resolve))
+    const cancelled = client
+      .callTool(
+        {
+          name: 'sweep',
+          arguments: {
+            url: [link('defect'), link('fixed'), link('defect')],
+            orientation: 'landscape-left',
+            out: folder,
+            app: EXPO_GO,
+          },
+        },
+        { ...long, signal: controller.signal, onprogress: () => noted() },
+      )
+      .then(
+        () => 'answered',
+        () => 'rejected',
+      )
+    // A sweep that ends with no note must not leave the run waiting.
+    await Promise.race([firstNote, cancelled])
+    controller.abort()
+    const outcome = await cancelled
+    // The server runs one call at a time, so this read waits until the
+    // cancelled sweep has put the look back.
+    const after = await client.callTool(
+      { name: 'ui', arguments: { app: EXPO_GO } },
+      long,
+    )
+    const orientation = after.structuredContent?.orientation
+    const passed =
+      outcome === 'rejected' &&
+      orientation === 'portrait' &&
+      !existsSync(path.join(folder, 'report.json'))
+    check(
+      passed,
+      `mcp sweep, cancelled after its first screen: the screen is in ${orientation} again, with no report (call ${outcome})`,
+    )
+    if (!passed) keepScreen('mcp-cancel.png')
+  } catch (error) {
+    check(false, `mcp: ${error instanceof Error ? error.message : error}`)
+    keepScreen('mcp-error.png')
+  } finally {
+    for (const client of clients) await client.close().catch(() => undefined)
+  }
 }
 
 function patternLink(pattern, variant) {
