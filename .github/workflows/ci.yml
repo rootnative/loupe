@@ -59,6 +59,11 @@ jobs:
       - name: Run the built CLI
         run: node packages/loupe/dist/bin.js version
 
+      # The files that each package would publish: each entry point, the
+      # README, the CHANGELOG, the LICENSE and the skill, and no other file.
+      - name: Check the packages
+        run: node scripts/check-pack.mjs
+
   test:
     name: Test (${{ matrix.os }})
     # loupe runs on all three hosts: iOS work needs macOS, and Android work
