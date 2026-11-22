@@ -6,7 +6,7 @@ Some facts about a screen are known only inside your app: the safe-area
 insets of the current orientation, the window size, and the layout direction.
 The probe reports them to loupe, in development only.
 
-> loupe is in early development. It has no release yet.
+> The probe is in alpha, as loupe is. A new version can change its report.
 
 ## Install
 
