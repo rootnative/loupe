@@ -50,6 +50,14 @@ export async function runCommand(
   if (!parsedInput.success) {
     return failure(name, 'invalid_input', describeIssues(parsedInput.error))
   }
+  // A call can wait behind another one, and its caller can cancel it there.
+  if (context.signal?.aborted) {
+    return failure(
+      name,
+      'cancelled',
+      `The call was cancelled before ${name} started, so loupe didn't run it.`,
+    )
+  }
 
   let raw: unknown
   try {

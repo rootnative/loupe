@@ -164,3 +164,30 @@ describe('runCommand', () => {
     })
   })
 })
+
+describe('runCommand, a cancelled call', () => {
+  it("doesn't start a command whose call was cancelled while it waited", async () => {
+    let ran = false
+    const watched = defineCommand({
+      ...double,
+      name: 'watched',
+      run: ({ value }) => {
+        ran = true
+        return { result: value }
+      },
+    })
+    const controller = new AbortController()
+    controller.abort()
+    const { context } = fakeContext(() => undefined)
+
+    expect(
+      await runCommand(
+        createRegistry([watched]),
+        'watched',
+        { value: 1 },
+        { ...context, signal: controller.signal },
+      ),
+    ).toMatchObject({ ok: false, error: { code: 'cancelled' } })
+    expect(ran).toBe(false)
+  })
+})

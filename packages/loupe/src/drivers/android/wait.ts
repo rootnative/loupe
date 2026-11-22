@@ -61,7 +61,7 @@ export function waitStillAndroid(
         return withoutBars(image, insets)
       },
     },
-    options,
+    { ...options, signal: target.signal },
   )
 }
 
@@ -72,10 +72,13 @@ export function waitForElementAndroid(
   selector: Selector,
   options: WaitOptions,
 ): Promise<ElementResult> {
-  return waitForElement(async () => {
-    const ui = await readAndroidUi(target, app)
-    return elementsOnScreen(ui.nodes, selector, ui.display.size)[0]
-  }, options)
+  return waitForElement(
+    async () => {
+      const ui = await readAndroidUi(target, app)
+      return elementsOnScreen(ui.nodes, selector, ui.display.size)[0]
+    },
+    { ...options, signal: target.signal },
+  )
 }
 
 /**

@@ -15,6 +15,7 @@ export const ERROR_CODES = [
   'element_not_found',
   'element_ambiguous',
   'no_handler',
+  'cancelled',
   'internal',
 ] as const
 
@@ -28,5 +29,19 @@ export class LoupeError extends Error {
     super(message, options)
     this.name = 'LoupeError'
     this.code = code
+  }
+}
+
+/**
+ * Throws `cancelled` when the caller cancelled the call. A long command
+ * calls it at each point where it can stop with the device in a known
+ * state, never in the middle of a touch.
+ */
+export function throwIfCancelled(signal: AbortSignal | undefined): void {
+  if (signal?.aborted) {
+    throw new LoupeError(
+      'cancelled',
+      'The call was cancelled, so loupe stopped.',
+    )
   }
 }

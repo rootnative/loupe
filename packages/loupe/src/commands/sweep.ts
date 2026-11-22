@@ -161,6 +161,7 @@ export const sweepCommand = defineCommand({
         out: input.out,
         scroll: input.scroll,
       },
+      context,
     )
 
     const failures = report.screens

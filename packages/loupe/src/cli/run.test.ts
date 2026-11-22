@@ -2,8 +2,9 @@ import { describe, expect, it } from 'vitest'
 import { z } from 'zod'
 import pkg from '../../package.json'
 import { createRegistry, defineCommand } from '../core/command'
+import { throwIfCancelled } from '../core/errors'
 import { fakeContext, missingTool } from '../testing/fake-exec'
-import { EXIT_FAILED, EXIT_OK, EXIT_USAGE, run } from './run'
+import { EXIT_CANCELLED, EXIT_FAILED, EXIT_OK, EXIT_USAGE, run } from './run'
 
 function capture(isTTY = false) {
   const out: string[] = []
@@ -187,6 +188,43 @@ describe('run, text output', () => {
     expect(await run(['move', '--help'], io, registry)).toBe(EXIT_OK)
     expect(out.join('\n')).toContain('Usage: loupe move <to> [options]')
     expect(out.join('\n')).toMatch(/--steps <number>\s+\(default: 1\)/)
+  })
+})
+
+describe('run, Ctrl-C', () => {
+  it('lets the command stop, and exits with 130', async () => {
+    let interrupt = () => {}
+    let listening = true
+    const halt = defineCommand({
+      name: 'halt',
+      summary: 'Stops at a Ctrl-C',
+      input: z.object({}),
+      output: z.object({}),
+      run: (_input, { signal }) => {
+        interrupt()
+        throwIfCancelled(signal)
+        return {}
+      },
+    })
+    const { io, out, err } = capture()
+    const onInterrupt = (listener: () => void) => {
+      interrupt = listener
+      return () => {
+        listening = false
+      }
+    }
+
+    expect(
+      await run(['halt'], { ...io, onInterrupt }, createRegistry([halt])),
+    ).toBe(EXIT_CANCELLED)
+    expect(JSON.parse(out[0] ?? '')).toMatchObject({
+      ok: false,
+      error: { code: 'cancelled' },
+    })
+    expect(err).toEqual([
+      'loupe halt: stopping at the next safe point. Press Ctrl-C again to quit now.',
+    ])
+    expect(listening).toBe(false)
   })
 })
 

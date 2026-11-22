@@ -10,7 +10,11 @@ import {
 } from '@modelcontextprotocol/server/stdio'
 import { registry as defaultRegistry } from '../commands'
 import { type Registry } from '../core/command'
-import { type CommandContext, createContext } from '../core/context'
+import {
+  type CommandContext,
+  createContext,
+  type ProgressUpdate,
+} from '../core/context'
 import { type CommandResult, runCommand } from '../core/run-command'
 import { version } from '../version'
 import { toolResult, toolsOf } from './tools'
@@ -44,7 +48,7 @@ export function createMcpServer(
   )
 
   server.setRequestHandler('tools/list', () => ({ tools }))
-  server.setRequestHandler('tools/call', async (request) => {
+  server.setRequestHandler('tools/call', async (request, ctx) => {
     const { name, arguments: input = {} } = request.params
     const tool = byName.get(name)
     if (!tool) {
@@ -53,8 +57,24 @@ export function createMcpServer(
         `"${name}" is not a loupe tool.`,
       )
     }
+    const token = ctx.mcpReq._meta?.progressToken
+    const call: CommandContext = {
+      ...context,
+      signal: ctx.mcpReq.signal,
+      ...(token !== undefined && {
+        progress: (update: ProgressUpdate) => {
+          ctx.mcpReq
+            .notify({
+              method: 'notifications/progress',
+              params: { progressToken: token, ...update },
+            })
+            // A lost progress note must not fail the call.
+            .catch(() => undefined)
+        },
+      }),
+    }
     const result: CommandResult = await oneAtATime(() =>
-      runCommand(registry, name, input, context),
+      runCommand(registry, name, input, call),
     )
     return server.projectCallToolResult(toolResult(result), tool.outputSchema)
   })

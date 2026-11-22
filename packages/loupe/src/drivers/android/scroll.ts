@@ -5,7 +5,7 @@ import {
   findElement,
   type Selector,
 } from '../../core/element'
-import { LoupeError } from '../../core/errors'
+import { LoupeError, throwIfCancelled } from '../../core/errors'
 import {
   cutAtIncomingEdge,
   NUDGE_SHARE,
@@ -139,6 +139,7 @@ export async function scrollToAndroid(
         `The element with the ${describeSelector(selector)} didn't show after ${drags(scrolls)} ${direction}. Give a higher max-scrolls to go on.`,
       )
     }
+    throwIfCancelled(target.signal)
     await scroll()
   }
 }

@@ -84,6 +84,27 @@ describe('waitForStill', () => {
       await waitForStill(frames, { timeout: 0, interval: 0 }),
     ).toMatchObject({ still: false, frames: 2 })
   })
+
+  it('stops with cancelled before the next screenshot', async () => {
+    const controller = new AbortController()
+    const frames = source(['a', 'b', 'c'], {
+      a: gray([1, 1]),
+      b: gray([2, 2]),
+      c: gray([1, 2]),
+    })
+    const take = frames.take
+    let taken = 0
+    frames.take = async () => {
+      taken += 1
+      if (taken === 2) controller.abort()
+      return take()
+    }
+
+    await expect(
+      waitForStill(frames, { ...NOW, signal: controller.signal }),
+    ).rejects.toMatchObject({ code: 'cancelled' })
+    expect(taken).toBe(2)
+  })
 })
 
 describe('waitForElement', () => {
@@ -117,6 +138,23 @@ describe('waitForElement', () => {
         throw new LoupeError('tool_failed', 'adb is gone.')
       }, NOW),
     ).rejects.toMatchObject({ code: 'tool_failed' })
+  })
+
+  it('stops with cancelled before the next read', async () => {
+    const controller = new AbortController()
+    let reads = 0
+
+    await expect(
+      waitForElement(
+        async () => {
+          reads += 1
+          controller.abort()
+          return undefined
+        },
+        { ...NOW, signal: controller.signal },
+      ),
+    ).rejects.toMatchObject({ code: 'cancelled' })
+    expect(reads).toBe(1)
   })
 
   it('gives no element at the timeout, with the last error it went past', async () => {

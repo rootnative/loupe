@@ -12,17 +12,29 @@ export interface CliIO {
   err: (text: string) => void
   /** True when a person reads the output in a terminal. */
   isTTY: boolean
+  /**
+   * Calls `listener` on the first Ctrl-C while a command runs. Gives the
+   * function that stops the listening.
+   */
+  onInterrupt?: (listener: () => void) => () => void
 }
 
 const defaultIO: CliIO = {
   out: (text) => process.stdout.write(`${text}\n`),
   err: (text) => process.stderr.write(`${text}\n`),
   isTTY: process.stdout.isTTY === true,
+  // `once`: a second Ctrl-C finds no listener, and Node quits at once.
+  onInterrupt: (listener) => {
+    process.once('SIGINT', listener)
+    return () => process.off('SIGINT', listener)
+  },
 }
 
 export const EXIT_OK = 0
 export const EXIT_FAILED = 1
 export const EXIT_USAGE = 2
+/** 128 + SIGINT, as a shell gives for Ctrl-C. */
+export const EXIT_CANCELLED = 130
 
 const JSON_FLAGS = new Set(['--json', '--no-json'])
 
@@ -55,6 +67,7 @@ async function mcp(
 function exitCodeOf(result: CommandResult): number {
   if (result.ok) return EXIT_OK
   const { code } = result.error
+  if (code === 'cancelled') return EXIT_CANCELLED
   return code === 'unknown_command' || code === 'invalid_input'
     ? EXIT_USAGE
     : EXIT_FAILED
@@ -123,5 +136,23 @@ export async function run(
     return EXIT_OK
   }
 
-  return report(await runCommand(registry, command.name, parsed.input, context))
+  // The first Ctrl-C lets the command stop at a safe point: a sweep then
+  // puts the orientation and the theme back.
+  const controller = new AbortController()
+  const stopListening = io.onInterrupt?.(() => {
+    io.err(
+      `loupe ${command.name}: stopping at the next safe point. Press Ctrl-C again to quit now.`,
+    )
+    controller.abort()
+  })
+  try {
+    return report(
+      await runCommand(registry, command.name, parsed.input, {
+        ...context,
+        signal: controller.signal,
+      }),
+    )
+  } finally {
+    stopListening?.()
+  }
 }

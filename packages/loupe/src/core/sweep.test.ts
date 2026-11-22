@@ -473,3 +473,74 @@ describe('sweep', () => {
     expect(report.variants[0]).not.toHaveProperty('scrolledSheet')
   })
 })
+
+describe('sweep, progress and cancel', () => {
+  it('gives the progress after each link of each variant', async () => {
+    const { driver } = fakeDriver({ defects: [B], scrolls: [A] })
+    const updates: unknown[] = []
+
+    await sweep(
+      driver,
+      {
+        urls: [A, B],
+        orientations: ['portrait', 'landscape-left'],
+        out: path.join(out, 'progress'),
+        scroll: true,
+      },
+      { progress: (update) => updates.push(update) },
+    )
+
+    expect(updates).toEqual([
+      {
+        progress: 1,
+        total: 4,
+        message: 'portrait-light, link 1 of 2: passed; scrolled: passed',
+      },
+      { progress: 2, total: 4, message: 'portrait-light, link 2 of 2: failed' },
+      {
+        progress: 3,
+        total: 4,
+        message: 'landscape-left-light, link 1 of 2: passed; scrolled: passed',
+      },
+      {
+        progress: 4,
+        total: 4,
+        message: 'landscape-left-light, link 2 of 2: failed',
+      },
+    ])
+  })
+
+  it('stops before the next link when the call is cancelled, and puts the look back', async () => {
+    const folder = path.join(out, 'cancelled')
+    const { driver, calls } = fakeDriver()
+    const controller = new AbortController()
+
+    const swept = sweep(
+      driver,
+      { urls: [A, B], orientations: ['landscape-left'], out: folder },
+      { signal: controller.signal, progress: () => controller.abort() },
+    )
+
+    await expect(swept).rejects.toMatchObject({
+      code: 'cancelled',
+      message: expect.stringContaining('after 1 of 2 screens'),
+    })
+    expect(calls).toEqual([
+      `open ${A}`,
+      'rotate landscape-left',
+      'restore portrait light true false',
+    ])
+    expect(() => readFileSync(path.join(folder, 'report.json'))).toThrow()
+  })
+
+  it('stops at a cancel inside a screen, and keeps it out of the report', async () => {
+    const { driver, calls } = fakeDriver({
+      errors: { [A]: new LoupeError('cancelled', 'The call was cancelled.') },
+    })
+
+    await expect(
+      sweep(driver, { urls: [A, B], out: path.join(out, 'cancel-inside') }),
+    ).rejects.toMatchObject({ code: 'cancelled' })
+    expect(calls).toEqual([`open ${A}`, 'restore portrait light false false'])
+  })
+})

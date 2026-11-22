@@ -1,6 +1,7 @@
 import path from 'node:path'
 import { z } from 'zod'
 import { type ScreenCheck, screenCheckSchema } from './check'
+import { type CommandContext } from './context'
 import { contactSheet, type SheetCell } from './contact-sheet'
 import { ORIENTATIONS, type Orientation } from './display'
 import { ERROR_CODES, LoupeError } from './errors'
@@ -182,7 +183,7 @@ async function failedScreen(
   screen: SweepScreen,
   error: unknown,
 ): Promise<Buffer | undefined> {
-  if (!(error instanceof LoupeError)) throw error
+  if (!(error instanceof LoupeError) || error.code === 'cancelled') throw error
   screen.error = { code: error.code, message: error.message }
   return driver.capture().catch(() => undefined)
 }
@@ -237,6 +238,11 @@ async function checkScrolled(
   return { png }
 }
 
+function outcomeOf(screen: SweepScreen): string {
+  if (screen.error) return `error ${screen.error.code}`
+  return screen.passed ? 'passed' : 'failed'
+}
+
 /**
  * Opens each link in each variant (orientation × theme), waits until the
  * screen keeps still, runs the rules and keeps the screenshot. With
@@ -245,20 +251,29 @@ async function checkScrolled(
  * the report, and the sweep goes on. At the end it writes the contact
  * sheets of each variant and `report.json`, and puts the orientation and
  * the theme back.
+ *
+ * It gives `progress` after each link of each variant. When `signal`
+ * aborts, it stops before the next link, puts the look back, and throws
+ * `cancelled`: the screenshots so far stay, with no report.
  */
 export async function sweep(
   driver: SweepDriver,
   { urls, orientations, themes, out, scroll }: SweepInput,
+  { signal, progress }: Pick<CommandContext, 'signal' | 'progress'> = {},
 ): Promise<SweepReport> {
   const folder = path.resolve(out)
   const start = await driver.look()
   const screens: SweepScreen[] = []
   const variants: SweepVariant[] = []
   const warnings: string[] = []
+  const orientationList = orientations ?? [start.orientation]
+  const themeList = themes ?? [start.theme]
+  const total = urls.length * orientationList.length * themeList.length
+  let done = 0
 
   try {
-    for (const orientation of orientations ?? [start.orientation]) {
-      for (const theme of themes ?? [start.theme]) {
+    for (const orientation of orientationList) {
+      for (const theme of themeList) {
         const name = `${orientation}-${theme}`
         const topCells: Cell[] = []
         const scrolledCells: Cell[] = []
@@ -293,6 +308,12 @@ export async function sweep(
         }
 
         for (const [index, url] of urls.entries()) {
+          if (signal?.aborted) {
+            throw new LoupeError(
+              'cancelled',
+              `The call was cancelled, so loupe stopped the sweep after ${done} of ${total} screens. The screenshots so far are in ${folder}; it wrote no report.`,
+            )
+          }
           const screenOf = (scrolled: boolean): SweepScreen => ({
             number: index + 1,
             url,
@@ -313,12 +334,24 @@ export async function sweep(
             }
           })
           await keep(top, png, opened)
-          if (!scroll || top.error) continue
 
-          const began = Date.now()
-          const below = screenOf(true)
-          const shown = await checkScrolled(driver, below)
-          if (shown) await keep(below, shown.png, began)
+          let below: SweepScreen | undefined
+          if (scroll && !top.error) {
+            const began = Date.now()
+            const screen = screenOf(true)
+            const shown = await checkScrolled(driver, screen)
+            if (shown) {
+              await keep(screen, shown.png, began)
+              below = screen
+            }
+          }
+
+          done += 1
+          progress?.({
+            progress: done,
+            total,
+            message: `${name}, link ${index + 1} of ${urls.length}: ${outcomeOf(top)}${below ? `; scrolled: ${outcomeOf(below)}` : ''}`,
+          })
         }
 
         variants.push({

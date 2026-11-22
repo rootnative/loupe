@@ -30,6 +30,8 @@ export interface AndroidTarget {
   apiLevel: number
   /** adb with `-s <serial>` before each command. */
   adb: SdkTool
+  /** The `signal` of the command's context: each wait loop stops on it. */
+  signal?: AbortSignal
 }
 
 type Attempt<T> = { value: T } | { error: string }
@@ -302,5 +304,6 @@ export async function selectAndroidDevice(
     kind: kindOf(entry.serial, props),
     apiLevel,
     adb: adb.forDevice(entry.serial),
+    signal: context.signal,
   }
 }

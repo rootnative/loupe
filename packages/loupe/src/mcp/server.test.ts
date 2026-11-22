@@ -8,6 +8,7 @@ import pkg from '../../package.json'
 import { registry } from '../commands'
 import { createRegistry, defineCommand, type Registry } from '../core/command'
 import { type CommandContext } from '../core/context'
+import { throwIfCancelled } from '../core/errors'
 import { byCommand, fakeContext, missingTool } from '../testing/fake-exec'
 import { createMcpServer, serveMcp } from './server'
 
@@ -127,6 +128,73 @@ describe.each(ERAS)('the MCP server, protocol $protocol', (era) => {
     await expect(call).rejects.toMatchObject({ code: -32602 })
   })
 })
+
+describe.each(ERAS)(
+  'the MCP server, progress and cancel, protocol $protocol',
+  (era) => {
+    it('sends the progress of a command to a client that asks for it', async () => {
+      const count = defineCommand({
+        name: 'count',
+        summary: 'Counts to three',
+        input: z.object({}),
+        output: z.object({}),
+        run: (_input, { progress }) => {
+          for (const step of [1, 2, 3]) {
+            progress?.({ progress: step, total: 3, message: `step ${step}` })
+          }
+          return {}
+        },
+      })
+      const client = await connect(era, createRegistry([count]))
+      const updates: unknown[] = []
+
+      await client.callTool(
+        { name: 'count', arguments: {} },
+        { onprogress: (update) => updates.push(update) },
+      )
+
+      expect(updates).toEqual([
+        { progress: 1, total: 3, message: 'step 1' },
+        { progress: 2, total: 3, message: 'step 2' },
+        { progress: 3, total: 3, message: 'step 3' },
+      ])
+    })
+
+    it('aborts the signal of the command when the client cancels the call', async () => {
+      let started = () => {}
+      const running = new Promise<void>((resolve) => (started = resolve))
+      let aborted = () => {}
+      const stopped = new Promise<void>((resolve) => (aborted = resolve))
+      const hang = defineCommand({
+        name: 'hang',
+        summary: 'Waits for a cancel',
+        input: z.object({}),
+        output: z.object({}),
+        run: async (_input, { signal }) => {
+          started()
+          await new Promise((resolve) =>
+            signal?.addEventListener('abort', resolve),
+          )
+          aborted()
+          throwIfCancelled(signal)
+          return {}
+        },
+      })
+      const client = await connect(era, createRegistry([hang]))
+      const controller = new AbortController()
+
+      const call = client.callTool(
+        { name: 'hang', arguments: {} },
+        { signal: controller.signal },
+      )
+      await running
+      controller.abort()
+
+      await expect(call).rejects.toThrow()
+      await stopped
+    })
+  },
+)
 
 describe('the MCP server, calls at the same time', () => {
   it('runs one call after the other', async () => {

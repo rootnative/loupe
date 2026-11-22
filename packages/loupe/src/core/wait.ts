@@ -1,7 +1,7 @@
 import { setTimeout as sleep } from 'node:timers/promises'
 import { z } from 'zod'
 import { describeElement, type Element, elementSchema } from './element'
-import { LoupeError } from './errors'
+import { LoupeError, throwIfCancelled } from './errors'
 import { type Image, type PixelRect } from './png'
 import { round2 } from './units'
 
@@ -62,6 +62,8 @@ export type Waited = z.infer<typeof waitedSchema>
 export interface WaitOptions {
   timeout: number
   interval: number
+  /** Stops the wait with `cancelled`, before its next read. */
+  signal?: AbortSignal
 }
 
 /**
@@ -111,7 +113,7 @@ export interface StillResult {
  */
 export async function waitForStill(
   source: StillSource,
-  { timeout, interval }: WaitOptions,
+  { timeout, interval, signal }: WaitOptions,
 ): Promise<StillResult> {
   const start = Date.now()
   const pixels = (frame: Frame) => (frame.image ??= source.decode(frame.png))
@@ -120,6 +122,7 @@ export async function waitForStill(
   let frames = 1
   for (;;) {
     await sleep(interval)
+    throwIfCancelled(signal)
     const current: Frame = { png: await source.take() }
     frames += 1
     let still = current.png.equals(previous.png)
@@ -152,12 +155,13 @@ const PASSING = new Set(['not_idle', 'app_not_in_front'])
  */
 export async function waitForElement(
   find: () => Promise<Element | undefined>,
-  { timeout, interval }: WaitOptions,
+  { timeout, interval, signal }: WaitOptions,
 ): Promise<ElementResult> {
   const start = Date.now()
   let reads = 0
   let lastError: LoupeError | undefined
   for (;;) {
+    throwIfCancelled(signal)
     reads += 1
     try {
       const element = await find()

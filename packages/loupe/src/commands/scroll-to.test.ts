@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { run } from '../cli/run'
+import { type CommandContext } from '../core/context'
 import { runCommand } from '../core/run-command'
 import { byCommand, type FakeRun, fakeContext } from '../testing/fake-exec'
 import { recorded, recordedText } from '../testing/fixtures'
@@ -206,6 +207,29 @@ describe('scroll-to', () => {
       ok: false,
       error: { code: 'invalid_input' },
     })
+  })
+
+  it('stops before a drag when the call is cancelled', async () => {
+    const controller = new AbortController()
+    const { context, drags } = settings([TREE])
+    const watched: CommandContext = {
+      ...context,
+      signal: controller.signal,
+      exec: (file, args, options) => {
+        if (args.includes('uiautomator')) controller.abort()
+        return context.exec(file, args, options)
+      },
+    }
+
+    const result = await runCommand(
+      registry,
+      'scroll-to',
+      { text: 'System' },
+      watched,
+    )
+
+    expect(result).toMatchObject({ ok: false, error: { code: 'cancelled' } })
+    expect(drags()).toBe(0)
   })
 
   it('prints where the element is', async () => {
