@@ -1,3 +1,6 @@
+import { mkdtemp, readFile, rm } from 'node:fs/promises'
+import os from 'node:os'
+import path from 'node:path'
 import { describe, expect, it } from 'vitest'
 import { run } from '../cli/run'
 import { runCommand } from '../core/run-command'
@@ -34,6 +37,23 @@ describe('ui', () => {
         nodes: [{ type: 'android.widget.FrameLayout' }],
       },
     })
+  })
+
+  it('writes the result as JSON with out, for check --mirror-of', async () => {
+    const { context } = emulator36()
+    const dir = await mkdtemp(path.join(os.tmpdir(), 'loupe-ui-'))
+    const out = path.join(dir, 'screens', 'ltr.json')
+
+    try {
+      const result = await runCommand(registry, 'ui', { out }, context)
+      if (!result.ok) throw new Error(result.error.message)
+      const { file, ...data } = result.data as { file: string }
+
+      expect(file).toBe(out)
+      expect(JSON.parse(await readFile(out, 'utf8'))).toEqual(data)
+    } finally {
+      await rm(dir, { recursive: true, force: true })
+    }
   })
 
   it('prints an outline of the tree', async () => {

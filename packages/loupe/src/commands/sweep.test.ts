@@ -95,12 +95,27 @@ describe('sweep', { timeout: 30_000 }, () => {
           variant: 'portrait-light',
           screenshot: path.join(folder, 'portrait-light', '01.png'),
           rules: ['centred'],
-          findings: 1,
+          findings: [
+            {
+              rule: 'centred',
+              element: { text: expect.any(String) },
+              message: expect.stringMatching(/ dp /),
+            },
+          ],
         },
-        { number: 3, rules: ['overflow'], findings: 1 },
+        {
+          number: 3,
+          rules: ['overflow'],
+          findings: [{ rule: 'overflow', message: expect.any(String) }],
+        },
       ],
       warnings: [],
     })
+    expect(data.failures.map(({ findings }) => findings.length)).toEqual([1, 1])
+    // Over MCP, the contact sheet goes with the result as an image.
+    expect(sweepCommand.images?.(data)).toEqual([
+      path.join(folder, 'portrait-light.png'),
+    ])
     // Nothing written to the device: no rotation, no theme.
     expect(
       calls
@@ -191,7 +206,7 @@ describe('sweep', { timeout: 30_000 }, () => {
     ).toBe(1)
     expect(lines.join('\n')).toContain('1 of 1 screens failed.')
     expect(lines.join('\n')).toContain(
-      `  1 portrait-light ${link('overflow/defect')}: overflow (1 findings)`,
+      `  1 portrait-light ${link('overflow/defect')}: overflow\n    overflow: `,
     )
     expect(
       await run(args('overflow/fixed'), io, registry, emulator().context),
@@ -217,43 +232,69 @@ describe('sweep', { timeout: 30_000 }, () => {
   })
 
   it('names a scrolled screen and its contact sheet in the summary', () => {
-    const text = sweepCommand.format?.(
-      sweepCommand.output.parse({
-        out: '/tmp/s',
-        report: '/tmp/s/report.json',
-        passed: false,
-        screens: 2,
-        failed: 1,
-        variants: [
-          {
-            name: 'portrait-light',
-            orientation: 'portrait',
-            theme: 'light',
-            sheet: '/tmp/s/portrait-light.png',
-            scrolledSheet: '/tmp/s/portrait-light-scrolled.png',
-            screens: 2,
-            failed: 1,
-          },
-        ],
-        failures: [
-          {
-            number: 1,
-            url: 'app://a',
-            variant: 'portrait-light',
-            scrolled: true,
-            rules: ['touch-target'],
-            findings: 1,
-          },
-        ],
-        warnings: [],
-      }),
-    )
+    const result = sweepCommand.output.parse({
+      out: '/tmp/s',
+      report: '/tmp/s/report.json',
+      passed: false,
+      screens: 2,
+      failed: 1,
+      variants: [
+        {
+          name: 'portrait-light',
+          orientation: 'portrait',
+          theme: 'light',
+          sheet: '/tmp/s/portrait-light.png',
+          scrolledSheet: '/tmp/s/portrait-light-scrolled.png',
+          screens: 2,
+          failed: 1,
+        },
+      ],
+      failures: [
+        {
+          number: 1,
+          url: 'app://a',
+          variant: 'portrait-light',
+          scrolled: true,
+          rules: ['touch-target'],
+          findings: [
+            {
+              rule: 'touch-target',
+              element: {
+                type: 'Button',
+                label: 'Close',
+                frame: { x: 0, y: 0, width: 24, height: 24 },
+              },
+              message: 'label "Close" is 24 × 24 dp.',
+            },
+          ],
+        },
+        {
+          number: 2,
+          url: 'app://b',
+          variant: 'portrait-light',
+          scrolled: false,
+          rules: [],
+          findings: [],
+          error: { code: 'timeout', message: 'The screen kept moving.' },
+        },
+      ],
+      warnings: [],
+    })
+    const text = sweepCommand.format?.(result)
 
     expect(text).toContain(
       'portrait-light: 1 failed, contact sheet /tmp/s/portrait-light.png, scrolled /tmp/s/portrait-light-scrolled.png',
     )
     expect(text).toContain(
-      '  1 portrait-light scrolled app://a: touch-target (1 findings)',
+      [
+        '  1 portrait-light scrolled app://a: touch-target',
+        '    touch-target: label "Close" is 24 × 24 dp.',
+        '  2 portrait-light app://b: timeout: The screen kept moving.',
+      ].join('\n'),
     )
+    expect(sweepCommand.images?.(result)).toEqual([
+      '/tmp/s/portrait-light.png',
+      '/tmp/s/portrait-light-scrolled.png',
+    ])
   })
 })

@@ -452,7 +452,7 @@ function checkSweep() {
     loupe('ui', '--app', EXPO_GO).data?.orientation === 'portrait'
   check(
     passed,
-    `sweep: 2 links × 2 orientations, the centred defect found and its twin passed (exit ${swept.exit}; ${data?.screens} screens; failed: ${failures.map(({ number, variant, rules, error }) => `${number} ${variant} ${error ?? rules.join('+')}`).join(', ') || 'none'}; ${sheets.filter(Boolean).length} sheets; ${shots.filter(Boolean).length} screenshots)`,
+    `sweep: 2 links × 2 orientations, the centred defect found and its twin passed (exit ${swept.exit}; ${data?.screens} screens; failed: ${failures.map(({ number, variant, rules, error }) => `${number} ${variant} ${error?.code ?? rules.join('+')}`).join(', ') || 'none'}; ${sheets.filter(Boolean).length} sheets; ${shots.filter(Boolean).length} screenshots)`,
   )
   if (!passed) keepScreen('sweep.png')
 }
@@ -507,7 +507,7 @@ function checkSweepScroll() {
     firstRow !== undefined
   check(
     passed,
-    `sweep --scroll: the defect found after the scroll only, each screen back at its top (exit ${swept.exit}; ${data?.screens} screens; failed: ${failures.map(({ number, scrolled, rules, error }) => `${number}${scrolled ? ' scrolled' : ''} ${error ?? rules.join('+')}`).join(', ') || 'none'}; warnings: ${warnings.join(' ') || 'none'}; first row ${firstRow ? 'shown' : 'not shown'})`,
+    `sweep --scroll: the defect found after the scroll only, each screen back at its top (exit ${swept.exit}; ${data?.screens} screens; failed: ${failures.map(({ number, scrolled, rules, error }) => `${number}${scrolled ? ' scrolled' : ''} ${error?.code ?? rules.join('+')}`).join(', ') || 'none'}; warnings: ${warnings.join(' ') || 'none'}; first row ${firstRow ? 'shown' : 'not shown'})`,
   )
   if (!passed) keepScreen('sweep-scroll.png')
 }
@@ -670,17 +670,46 @@ async function checkMcp() {
       { ...long, onprogress: (update) => updates.push(update) },
     )
     const failed = swept.structuredContent?.failures ?? []
+    const sheets = (swept.structuredContent?.variants ?? []).map(
+      ({ sheet }) => sheet,
+    )
+    const images = swept.content.filter((block) => block.type === 'image')
     check(
       !swept.isError &&
         swept.structuredContent?.screens === 4 &&
         failed.length > 0 &&
-        failed.every(({ number, error }) => number === 1 && !error) &&
+        failed.every(
+          ({ number, error, findings }) =>
+            number === 1 && !error && findings.length > 0,
+        ) &&
+        images.length === sheets.length &&
+        images.every((image, index) =>
+          Buffer.from(image.data, 'base64').equals(readFileSync(sheets[index])),
+        ) &&
         updates.length === 4 &&
         updates.every(
           (update, index) =>
             update.progress === index + 1 && update.total === 4,
         ),
-      `mcp sweep: 4 screens, the defect found, a progress note after each screen (${updates.map((update) => update.message).join('; ') || 'no notes'})`,
+      `mcp sweep: 4 screens, the defect found with its findings, ${images.length} contact sheets as images, a progress note after each screen (${updates.map((update) => update.message).join('; ') || 'no notes'})`,
+    )
+
+    const kept = path.join(out, 'mcp-ui.json')
+    const read = await client.callTool({
+      name: 'ui',
+      arguments: { out: kept, app: EXPO_GO },
+    })
+    let saved
+    try {
+      saved = JSON.parse(readFileSync(kept, 'utf8'))
+    } catch {
+      saved = undefined
+    }
+    check(
+      !read.isError &&
+        read.structuredContent?.file === kept &&
+        saved?.nodes?.length > 0,
+      `mcp ui with out: the tree in ${saved ? 'the file' : 'no file'}, for check --mirror-of`,
     )
 
     const missing = await client.callTool({

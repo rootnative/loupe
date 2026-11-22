@@ -69,7 +69,7 @@ export async function imageBlocks(
       if (png.length > limit) {
         return {
           type: 'text',
-          text: `loupe left the image of ${file} out of this result: the PNG has ${megabytes(png.length)}, and an image block takes ${megabytes(limit)} at most. Give a scale, for example 0.5, or a crop to make it smaller.`,
+          text: `loupe left the image of ${file} out of this result: the PNG has ${megabytes(png.length)}, and an image block takes ${megabytes(limit)} at most. Open the file, or make the image smaller: a screenshot with a scale (for example 0.5) or a crop, or a sweep of fewer links.`,
         }
       }
       return {

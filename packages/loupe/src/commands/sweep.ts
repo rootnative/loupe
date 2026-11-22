@@ -1,6 +1,6 @@
 import path from 'node:path'
 import { z } from 'zod'
-import { RULES, rulesOf } from '../core/check'
+import { findingSchema, RULES, rulesOf } from '../core/check'
 import { defineCommand } from '../core/command'
 import { appField, deviceField } from '../core/device'
 import { ORIENTATIONS, type Orientation } from '../core/display'
@@ -47,14 +47,19 @@ const failureSchema = sweepScreenSchema
     variant: true,
     scrolled: true,
     screenshot: true,
+    error: true,
   })
   .extend({
     rules: z.array(z.string()).describe('The rules that failed.'),
-    findings: z.number().describe('The findings of those rules.'),
-    error: z
-      .string()
-      .optional()
-      .describe('The error code, when loupe could not check the screen.'),
+    findings: z
+      .array(
+        findingSchema
+          .pick({ element: true, message: true })
+          .extend({ rule: z.enum(RULES) }),
+      )
+      .describe(
+        'Each finding of those rules: the element, and a message with the numbers in dp. The report also has the numbers by name.',
+      ),
   })
 
 export const sweepCommand = defineCommand({
@@ -130,7 +135,9 @@ export const sweepCommand = defineCommand({
     variants: z.array(sweepVariantSchema),
     failures: z
       .array(failureSchema)
-      .describe('The screens that failed, in short. The report has the rest.'),
+      .describe(
+        'The screens that failed, each with its findings or its error. The report also has the screens that passed, and the warnings of each rule.',
+      ),
     warnings: z.array(z.string()),
   }),
   run: async (input, context) => {
@@ -175,11 +182,14 @@ export const sweepCommand = defineCommand({
           scrolled,
           screenshot,
           rules: failed.map((result) => result.rule),
-          findings: failed.reduce(
-            (sum, { findings }) => sum + findings.length,
-            0,
+          findings: failed.flatMap(({ rule, findings }) =>
+            findings.map(({ element, message }) => ({
+              rule,
+              element,
+              message,
+            })),
           ),
-          error: error?.code,
+          error,
         }
       })
     return {
@@ -194,6 +204,10 @@ export const sweepCommand = defineCommand({
     }
   },
   passed: (result) => result.passed,
+  images: ({ variants }) =>
+    variants.flatMap(({ sheet, scrolledSheet }) =>
+      scrolledSheet ? [sheet, scrolledSheet] : [sheet],
+    ),
   format: ({ report, screens, failed, variants, failures, warnings }) =>
     [
       failed === 0
@@ -203,12 +217,14 @@ export const sweepCommand = defineCommand({
         (variant) =>
           `${variant.name}: ${variant.failed === 0 ? 'pass' : `${variant.failed} failed`}, contact sheet ${variant.sheet}${variant.scrolledSheet ? `, scrolled ${variant.scrolledSheet}` : ''}`,
       ),
-      ...failures.map(
+      ...failures.flatMap(
         ({ number, url, variant, scrolled, rules, findings, error }) => {
           const where = `  ${number} ${variant}${scrolled ? ' scrolled' : ''} ${url}`
-          return error
-            ? `${where}: ${error}`
-            : `${where}: ${rules.join(', ')} (${findings} findings)`
+          if (error) return [`${where}: ${error.code}: ${error.message}`]
+          return [
+            `${where}: ${rules.join(', ')}`,
+            ...findings.map(({ rule, message }) => `    ${rule}: ${message}`),
+          ]
         },
       ),
       `Report: ${report}`,

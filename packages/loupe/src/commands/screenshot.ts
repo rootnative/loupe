@@ -12,6 +12,7 @@ import { captureAndroid } from '../drivers/android/screenshot'
 export const screenshotCommand = defineCommand({
   name: 'screenshot',
   summary: 'Save the screen as a PNG file, upright in each orientation',
+  readOnly: true,
   input: z.object({
     out: z
       .string()

@@ -21,6 +21,7 @@ const READ_ONLY = [
   'devices',
   'insets',
   'measure',
+  'screenshot',
   'ui',
   'version',
   'wait',
@@ -203,7 +204,7 @@ describe('imageBlocks', () => {
     expect(await imageBlocks([file], 20_000)).toEqual([
       {
         type: 'text',
-        text: `loupe left the image of ${file} out of this result: the PNG has 0.03 MB, and an image block takes 0.02 MB at most. Give a scale, for example 0.5, or a crop to make it smaller.`,
+        text: `loupe left the image of ${file} out of this result: the PNG has 0.03 MB, and an image block takes 0.02 MB at most. Open the file, or make the image smaller: a screenshot with a scale (for example 0.5) or a crop, or a sweep of fewer links.`,
       },
     ])
   })

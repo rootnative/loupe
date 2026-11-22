@@ -63,9 +63,12 @@ Give `sweep` one `url` for each screen. Add `orientation`
 screen in each of them. Add `scroll` to check each screen again after one
 scroll down.
 
+- The result lists each screen that failed, with each finding and its
+  numbers. You don't need to check those screens again.
 - A sweep writes to `out` (`loupe-sweep` by default): `report.json`, a
   screenshot of each screen, and a contact sheet of each variant. A red
-  frame on the contact sheet marks a screen that failed.
+  frame on the contact sheet marks a screen that failed. Over MCP, the
+  result also holds each contact sheet as an image.
 - A screen that loupe can't open or check gets its error in the report,
   and the sweep goes on.
 - A sweep can take minutes. Over MCP, it sends its progress after each
@@ -87,7 +90,7 @@ fewer.
 
 To check `mirrored`:
 
-1. Show the screen in LTR. Run `ui`, and save its JSON to a file.
+1. Show the screen in LTR. Run `ui` with `out` set to a file.
 2. Show the same screen in RTL, in the same orientation.
 3. Run `check` with `mirrorOf` set to that file.
 

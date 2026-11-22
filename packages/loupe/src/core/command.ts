@@ -21,8 +21,9 @@ export interface Command<
    */
   positionals?: readonly (keyof z.output<I> & string)[]
   /**
-   * The command changes nothing on the device and writes no file. An MCP
-   * client can run such a tool with no prompt.
+   * The command changes nothing on the device, and it writes a file only
+   * where its input names one. An MCP client can run such a tool with no
+   * prompt.
    */
   readOnly?: boolean
   // `run` and `format` use the method form on purpose. A method parameter is
