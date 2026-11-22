@@ -12,10 +12,10 @@ const NOT_FOR_AGENTS = new Set([
   'internal',
 ])
 
-const text = await readFile(
-  path.join(skillsFolder(), 'loupe', 'SKILL.md'),
-  'utf8',
-)
+// Git on Windows checks out text files with CRLF line ends.
+const text = (
+  await readFile(path.join(skillsFolder(), 'loupe', 'SKILL.md'), 'utf8')
+).replace(/\r\n/g, '\n')
 
 describe('the loupe skill', () => {
   it('has a name that matches its folder, and a description', () => {
