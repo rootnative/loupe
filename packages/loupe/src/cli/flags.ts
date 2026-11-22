@@ -1,6 +1,5 @@
 import { parseArgs } from 'node:util'
-import { z } from 'zod'
-import { type Command } from '../core/command'
+import { type Command, inputJsonSchema } from '../core/command'
 import { LoupeError } from '../core/errors'
 
 export type FlagKind = 'string' | 'number' | 'boolean'
@@ -53,7 +52,7 @@ function kindOf(node: SchemaNode | undefined): FlagKind | undefined {
  * for a field that a flag can't carry, so a test finds that command early.
  */
 export function flagsOf(command: Command): Flag[] {
-  const schema = z.toJSONSchema(command.input, { io: 'input' }) as {
+  const schema = inputJsonSchema(command) as {
     properties?: Record<string, SchemaNode>
     required?: string[]
   }

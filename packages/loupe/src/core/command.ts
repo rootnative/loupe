@@ -1,4 +1,4 @@
-import { type z } from 'zod'
+import { z } from 'zod'
 import { type CommandContext } from './context'
 
 /**
@@ -20,6 +20,11 @@ export interface Command<
    * `open-url <url>`. Each one still works as a flag.
    */
   positionals?: readonly (keyof z.output<I> & string)[]
+  /**
+   * The command changes nothing on the device and writes no file. An MCP
+   * client can run such a tool with no prompt.
+   */
+  readOnly?: boolean
   // `run` and `format` use the method form on purpose. A method parameter is
   // bivariant, so a list can hold commands with different input types.
   run(
@@ -39,6 +44,21 @@ export function defineCommand<I extends z.ZodObject, O extends z.ZodType>(
   command: Command<I, O>,
 ): Command<I, O> {
   return command
+}
+
+export type JsonSchema = z.core.JSONSchema.BaseSchema
+
+/**
+ * The JSON Schema of what a caller sends: a field with a default is
+ * optional. The CLI flags and the MCP tool both come from it.
+ */
+export function inputJsonSchema(command: Command): JsonSchema {
+  return z.toJSONSchema(command.input, { io: 'input' })
+}
+
+/** The JSON Schema of the data in a successful result. */
+export function outputJsonSchema(command: Command): JsonSchema {
+  return z.toJSONSchema(command.output, { io: 'output' })
 }
 
 export interface Registry {

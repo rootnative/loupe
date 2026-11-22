@@ -31,6 +31,7 @@ export const devicesCommand = defineCommand({
   name: 'devices',
   summary:
     "List the Android emulators and devices, and the AVDs that don't run",
+  readOnly: true,
   input: z.object({}),
   output: z.object({
     devices: z.array(deviceSchema),

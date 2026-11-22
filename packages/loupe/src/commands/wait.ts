@@ -26,6 +26,7 @@ export const waitCommand = defineCommand({
   name: 'wait',
   summary:
     'Wait until the screen keeps still, or until an element is on the screen',
+  readOnly: true,
   input: z.object({
     still: z
       .boolean()

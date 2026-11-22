@@ -5,6 +5,7 @@ import { version } from '../version'
 export const versionCommand = defineCommand({
   name: 'version',
   summary: 'Print the loupe version and the host it runs on',
+  readOnly: true,
   input: z.object({}),
   output: z.object({
     loupe: z.string(),

@@ -43,6 +43,7 @@ export const measureCommand = defineCommand({
   name: 'measure',
   summary:
     'Measure the colour runs along a row or a column, or where an element sits on the screen and in the safe area',
+  readOnly: true,
   input: z.object({
     row: lineField('row', 'y'),
     column: lineField('column', 'x'),

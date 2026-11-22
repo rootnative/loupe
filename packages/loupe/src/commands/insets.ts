@@ -10,6 +10,7 @@ export const insetsCommand = defineCommand({
   name: 'insets',
   summary:
     'Read the safe-area insets and the cutout of the current orientation',
+  readOnly: true,
   input: z.object({
     app: appField.describe(
       "The package of the app under test, for example host.exp.exponent for Expo Go. loupe then reads the app's probe only while that app is in front. On a real device, loupe reads the probe only with this option.",

@@ -10,6 +10,7 @@ import { readAndroidUi } from '../drivers/android/ui'
 export const uiCommand = defineCommand({
   name: 'ui',
   summary: 'Read the accessibility tree of the screen, with frames in dp',
+  readOnly: true,
   input: z.object({
     app: appField,
     device: deviceField,

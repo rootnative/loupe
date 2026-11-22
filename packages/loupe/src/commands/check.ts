@@ -113,6 +113,7 @@ export const checkCommand = defineCommand({
   name: 'check',
   summary:
     'Check the screen for layout defects: elements under an inset, cut at an edge, off centre, too small to touch, or not mirrored in the other direction',
+  readOnly: true,
   input: z.object({
     rules: z
       .string()
