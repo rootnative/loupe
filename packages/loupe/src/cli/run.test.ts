@@ -190,6 +190,33 @@ describe('run, text output', () => {
   })
 })
 
+describe('run, mcp', () => {
+  it('names mcp in the help', async () => {
+    const { io, out } = capture(true)
+
+    expect(await run(['--help'], io, registry)).toBe(EXIT_OK)
+    expect(out.join('\n')).toContain('loupe mcp')
+  })
+
+  it.each(['--help', '-h'])('prints the help of mcp for %s', async (flag) => {
+    const { io, out } = capture(true)
+
+    expect(await run(['mcp', flag], io, registry)).toBe(EXIT_OK)
+    expect(out.join('\n')).toContain('Usage: loupe mcp')
+  })
+
+  it('exits with 2 for an argument that mcp does not take', async () => {
+    const { io, out, err } = capture(true)
+
+    expect(await run(['mcp', '--port', '3000'], io, registry)).toBe(EXIT_USAGE)
+    expect(out).toEqual([])
+    expect(err).toEqual([
+      'loupe mcp: "--port" is not an option of mcp.',
+      'Run "loupe mcp --help" for its use.',
+    ])
+  })
+})
+
 describe('run, the built-in commands', () => {
   it('runs version', async () => {
     const { io, out } = capture()

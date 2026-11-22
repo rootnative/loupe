@@ -20,8 +20,11 @@ export interface McpTool {
   annotations: { readOnlyHint: boolean }
 }
 
-/** The result of an MCP `tools/call`. */
-export interface McpToolResult {
+/**
+ * The result of an MCP `tools/call`. A type, not an interface, so that it
+ * fits the SDK's result type, which has an index signature.
+ */
+export type McpToolResult = {
   content: { type: 'text'; text: string }[]
   structuredContent?: JsonObject
   isError?: true

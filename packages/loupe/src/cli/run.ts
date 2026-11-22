@@ -5,7 +5,7 @@ import { LoupeError } from '../core/errors'
 import { type CommandResult, runCommand } from '../core/run-command'
 import { version } from '../version'
 import { parseCommandArgs } from './flags'
-import { commandHelp, globalHelp } from './help'
+import { commandHelp, globalHelp, mcpHelp } from './help'
 
 export interface CliIO {
   out: (text: string) => void
@@ -25,6 +25,32 @@ export const EXIT_FAILED = 1
 export const EXIT_USAGE = 2
 
 const JSON_FLAGS = new Set(['--json', '--no-json'])
+
+async function mcp(
+  args: readonly string[],
+  io: CliIO,
+  registry: Registry,
+  context: CommandContext,
+): Promise<number> {
+  if (args.some((arg) => arg === '--help' || arg === '-h')) {
+    io.out(mcpHelp())
+    return EXIT_OK
+  }
+  if (args.length > 0) {
+    io.err(`loupe mcp: "${args[0]}" is not an option of mcp.`)
+    io.err('Run "loupe mcp --help" for its use.')
+    return EXIT_USAGE
+  }
+
+  // The MCP SDK loads only for the server, so each other command starts fast.
+  const { serveMcp } = await import('../mcp/server')
+  await serveMcp({
+    registry,
+    context,
+    onerror: (error) => io.err(`loupe mcp: ${error.message}`),
+  })
+  return EXIT_OK
+}
 
 function exitCodeOf(result: CommandResult): number {
   if (result.ok) return EXIT_OK
@@ -54,6 +80,7 @@ export async function run(
     io.out(version)
     return EXIT_OK
   }
+  if (first === 'mcp') return mcp(rest, io, registry, context)
 
   const report = (result: CommandResult): number => {
     const definition = registry.get(result.command)

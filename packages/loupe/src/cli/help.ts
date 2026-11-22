@@ -20,6 +20,7 @@ export function globalHelp(registry: Registry): string {
   )
 
   return `Usage: loupe <command> [options]
+       loupe mcp
 
 Commands:
 ${commands}
@@ -27,7 +28,17 @@ ${commands}
 Options:
 ${columns([...SHARED_OPTIONS, ['-v, --version', 'Print the version']])}
 
-Run "loupe <command> --help" for the options of one command.`
+Run "loupe <command> --help" for the options of one command.
+Run "loupe mcp" to serve each command as an MCP tool, over stdin and stdout.`
+}
+
+export function mcpHelp(): string {
+  return `Usage: loupe mcp
+
+Serve each loupe command as an MCP tool, over stdin and stdout. An MCP client starts this server. For example, its config runs "npx -y @rootnative/loupe mcp".
+
+Options:
+${columns([['-h, --help', 'Print this help']])}`
 }
 
 function flagLeft(flag: Flag): string {
