@@ -1,0 +1,306 @@
+name: Release (manual)
+
+# This filename is part of the release credentials. Don't rename it. npm
+# binds a trusted publisher to the exact `owner/repo` and workflow filename.
+# After a rename, the run fails at the publish step with a 404 on
+# `PUT /@rootnative%2floupe`, after every gate passed.
+#
+# One run releases two packages at one version: @rootnative/loupe and
+# @rootnative/loupe-probe. Register this file as a trusted publisher of each
+# package on npmjs.com: repository `rootnative/loupe`, workflow
+# `release-manual.yml`, stage-only. npm takes a trusted publisher only for a
+# package that exists, so a new package needs a first version by hand.
+#
+# To release:
+# 1. Write the `## [<version>] - <date>` section and its link in
+#    packages/loupe/CHANGELOG.md and packages/probe/CHANGELOG.md. Commit them
+#    to main, push, and wait for CI to pass on that commit.
+# 2. Dispatch this workflow from main with that version.
+# 3. Approve the two staged versions with 2FA on npmjs.com (Staged Packages),
+#    or with `npm stage approve`.
+#
+# The workflow checks that CI passed on the commit, sets the version of both
+# packages, and runs the Validate gates on the result. Then it commits
+# `release: loupe@<version>`, tags it, pushes both, stages the two publishes,
+# and creates the GitHub Release.
+#
+# When a run fails after the push, keep the release commit. Delete the tag
+# (`git push --delete origin loupe@<version>`) and dispatch again with the
+# same version. A package whose version is on npm is skipped. If a version is
+# staged but not approved, approve or reject it first: npm doesn't stage the
+# same version twice.
+on:
+  workflow_dispatch:
+    inputs:
+      custom_version:
+        description: 'Exact version, for example "0.0.0-alpha.1", with no "v" in front.'
+        required: true
+        type: string
+      tag:
+        description: 'npm dist-tag.'
+        required: true
+        default: latest
+        type: choice
+        options:
+          - latest
+          - alpha
+      dry_run:
+        description: 'Set the version and run every gate, but push, tag, and publish nothing. A missing CHANGELOG section is a warning.'
+        required: false
+        default: false
+        type: boolean
+
+# `contents: write` pushes the release commit and the tag, and creates the
+# GitHub Release. `id-token: write` gets the OIDC token that npm takes for
+# trusted publishing. `actions: read` reads the CI run of the commit.
+permissions:
+  contents: write
+  id-token: write
+  actions: read
+
+# No `cancel-in-progress`: a cancelled run can leave a version on npm with no
+# tag in git, and npm never takes a version twice.
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+jobs:
+  release:
+    name: Release @rootnative/loupe and @rootnative/loupe-probe
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      # The release commit goes to main, so the tree has to be main. A run
+      # from another branch would push that branch onto main.
+      - name: Require main
+        if: ${{ github.ref != 'refs/heads/main' }}
+        run: |
+          echo "::error::Dispatch this workflow from main. It pushes the release commit to main."
+          exit 1
+
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          # check-release.mjs needs the tags to see that this version wasn't
+          # cut before.
+          fetch-depth: 0
+
+      # Only CI runs the Android smoke on emulators, so a release waits for
+      # it. After a random failure, rerun the failed CI job, then dispatch
+      # again. A recovery run starts on the release commit: the bot pushed
+      # it with GITHUB_TOKEN, which starts no workflow, so CI ran on the
+      # commit before it.
+      - name: Require a green CI run of this commit
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          VERSION: ${{ inputs.custom_version }}
+        run: |
+          sha=$(git rev-parse HEAD)
+          if [ "$(git log -1 --format=%s)" = "release: loupe@$VERSION" ]; then
+            sha=$(git rev-parse HEAD^)
+          fi
+          run=$(gh run list --workflow ci.yml --commit "$sha" --event push --limit 1 \
+            --json databaseId,status,conclusion \
+            --jq '.[0] | select(.) | "\(.databaseId) \(.status) \(.conclusion)"')
+          if [ -z "$run" ]; then
+            echo "::error::CI has no run for $sha on main. Push the commit, and wait for CI to pass."
+            exit 1
+          fi
+          read -r id state conclusion <<< "$run"
+          if [ "$state" != "completed" ] || [ "$conclusion" != "success" ]; then
+            echo "::error::CI run $id of $sha is $state ($conclusion). Wait for it, or rerun its failed jobs, then dispatch again."
+            exit 1
+          fi
+          echo "CI run $id of $sha passed."
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6.0.10
+
+      - name: Setup Node.js
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version-file: .nvmrc
+          cache: 'pnpm'
+          # Trusted publishing needs it too: it names the registry that takes
+          # the OIDC token.
+          registry-url: https://registry.npmjs.org
+
+      # An exact version: a new npm can change the release path with no
+      # change in this repository, so bump it on purpose, in a commit of its
+      # own.
+      - name: Install npm (npm stage publish needs 11.15.0 or later)
+        run: npm install -g npm@11.19.1
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      # The inputs reach the shell through `env`, never through `${{ }}` in
+      # `run`, so a crafted version string can't run a command.
+      - name: Set the version
+        id: version
+        env:
+          VERSION: ${{ inputs.custom_version }}
+        run: |
+          if ! echo "$VERSION" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.]+)?$'; then
+            echo "::error::custom_version must be bare semver, like 0.0.0-alpha.1, with no 'v'."
+            exit 1
+          fi
+          # --allow-same-version is the recovery path: a run that pushed the
+          # release commit and then failed to publish leaves the version set.
+          (cd packages/loupe && npm version "$VERSION" --no-git-tag-version --allow-same-version)
+          (cd packages/probe && npm version "$VERSION" --no-git-tag-version --allow-same-version)
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+
+      - name: Check the release
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+          DIST_TAG: ${{ inputs.tag }}
+          DRY_RUN: ${{ inputs.dry_run }}
+        run: |
+          if [ "$DRY_RUN" = "true" ]; then
+            node scripts/check-release.mjs --version "$VERSION" --dist-tag "$DIST_TAG" --dry-run
+          else
+            node scripts/check-release.mjs --version "$VERSION" --dist-tag "$DIST_TAG"
+          fi
+
+      # The Validate gates of CI, on the tree that this run commits and
+      # publishes. No input skips them.
+      - name: Format check
+        run: pnpm run format:check
+
+      - name: Lint
+        run: pnpm run lint
+
+      - name: Typecheck
+        run: pnpm run typecheck
+
+      - name: Test
+        run: pnpm run test
+
+      - name: Build
+        run: pnpm run build
+
+      - name: Run the built CLI
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          built=$(node packages/loupe/dist/bin.js --version)
+          if [ "$built" != "$VERSION" ]; then
+            echo "::error::The built CLI says $built, not $VERSION."
+            exit 1
+          fi
+
+      - name: Check the packages
+        run: node scripts/check-pack.mjs
+
+      - name: Commit and tag
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add packages/loupe/package.json packages/probe/package.json
+          # A change outside that list would stay out of the commit.
+          if ! git diff --quiet; then
+            echo "::error::The release changed files outside the commit list:"
+            git status --short
+            exit 1
+          fi
+          # On the recovery path the version is already committed, so only
+          # the tag is new.
+          git diff --cached --quiet || git commit -m "release: loupe@$VERSION"
+          git tag "loupe@$VERSION"
+
+      # Push before the publish: a push can fail (main moved during the run,
+      # for example), and a publish can't be undone. `--atomic` pushes the
+      # commit and the tag together, or neither.
+      - name: Push the release commit and the tag
+        if: ${{ !inputs.dry_run }}
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        run: git push --atomic origin HEAD:refs/heads/main "refs/tags/loupe@$VERSION"
+
+      # OIDC only. There's no NODE_AUTH_TOKEN, and don't add one: a token
+      # quietly wins over trusted publishing. The trusted publisher is
+      # stage-only, so a plain `npm publish` fails. `npm stage publish`
+      # uploads the tarball with provenance and holds it until a maintainer
+      # approves it with 2FA. The dist-tag is set here, and approval can't
+      # change it. A version that's on npm is skipped, so a run that failed
+      # after this step can run again for the probe.
+      - name: Stage the publish of @rootnative/loupe on npm
+        if: ${{ !inputs.dry_run }}
+        working-directory: packages/loupe
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+          DIST_TAG: ${{ inputs.tag }}
+        run: |
+          if [ -n "$(npm view "@rootnative/loupe@$VERSION" version 2>/dev/null)" ]; then
+            echo "@rootnative/loupe@$VERSION is on npm already. Skipped."
+            exit 0
+          fi
+          npm stage publish --provenance --access public --tag "$DIST_TAG"
+
+      - name: Stage the publish of @rootnative/loupe-probe on npm
+        if: ${{ !inputs.dry_run }}
+        working-directory: packages/probe
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+          DIST_TAG: ${{ inputs.tag }}
+        run: |
+          if [ -n "$(npm view "@rootnative/loupe-probe@$VERSION" version 2>/dev/null)" ]; then
+            echo "@rootnative/loupe-probe@$VERSION is on npm already. Skipped."
+            exit 0
+          fi
+          npm stage publish --provenance --access public --tag "$DIST_TAG"
+
+      # npm answers a publish without rights with a 404, so its message names
+      # a missing package, not the credentials.
+      - name: Explain a publish failure
+        if: ${{ failure() && !inputs.dry_run }}
+        run: |
+          echo "::error::A 404 on PUT /@rootnative%2floupe or /@rootnative%2floupe-probe almost always means authentication, not a missing package."
+          echo "Check, in this order:"
+          echo "  1. Is .github/workflows/release-manual.yml a trusted publisher of that package on npmjs.com? npm binds the exact filename, for each package."
+          echo "  2. Does the job still have 'id-token: write'?"
+          echo "  3. Does the step run 'npm stage publish'? A stage-only publisher rejects 'npm publish'."
+          echo "If the push already happened, keep the release commit, delete the tag, and dispatch again with the same version. A package on npm is skipped. Approve or reject a staged version first."
+
+      - name: Create the GitHub Release
+        if: ${{ !inputs.dry_run }}
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          prerelease=""
+          case "$VERSION" in *-*) prerelease="--prerelease" ;; esac
+          gh release create "loupe@$VERSION" --title "$VERSION" --generate-notes $prerelease
+
+      - name: Summary
+        if: ${{ always() }}
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+          DIST_TAG: ${{ inputs.tag }}
+          DRY_RUN: ${{ inputs.dry_run }}
+          JOB_STATUS: ${{ job.status }}
+        run: |
+          {
+            if [ "$JOB_STATUS" != "success" ]; then
+              echo "### Release \`${VERSION:-?}\` failed"
+              echo ""
+              echo "If the push happened, keep the release commit. If the version isn't on npm, delete the tag and dispatch again with the same version."
+            elif [ "$DRY_RUN" = "true" ]; then
+              echo "### Dry run: nothing was pushed or published"
+              echo ""
+              echo "Every gate passed on the bumped tree. A real run pushes this commit:"
+              echo ""
+              echo '```'
+              git show --stat --format='%s' HEAD
+              echo '```'
+            else
+              echo "### \`$VERSION\` is staged, not live yet"
+              echo ""
+              echo "- npm: \`@rootnative/loupe@$VERSION\` and \`@rootnative/loupe-probe@$VERSION\` are staged for the dist-tag \`$DIST_TAG\`. Approve them with 2FA on npmjs.com (Staged Packages), or with \`npm stage approve\`. Nothing installs until then."
+              echo "- Commit: \`release: loupe@$VERSION\` on main"
+              echo "- Tag: \`loupe@$VERSION\`"
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
