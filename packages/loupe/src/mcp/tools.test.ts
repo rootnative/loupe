@@ -1,11 +1,20 @@
-import { describe, expect, it } from 'vitest'
+import { mkdtemp, rm, writeFile } from 'node:fs/promises'
+import os from 'node:os'
+import path from 'node:path'
+import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { z } from 'zod'
 import { flagsOf } from '../cli/flags'
 import { registry } from '../commands'
 import { createRegistry, defineCommand } from '../core/command'
 import { runCommand } from '../core/run-command'
 import { byCommand, fakeContext, missingTool } from '../testing/fake-exec'
-import { toolOf, toolResult, toolsOf } from './tools'
+import {
+  imageBlocks,
+  type McpToolResult,
+  toolOf,
+  toolResult,
+  toolsOf,
+} from './tools'
 
 const READ_ONLY = [
   'check',
@@ -99,6 +108,12 @@ describe('toolsOf', () => {
   })
 })
 
+function firstText(result: McpToolResult): string {
+  const [block] = result.content
+  if (block?.type !== 'text') throw new Error('The first block is not text.')
+  return block.text
+}
+
 describe('toolResult', () => {
   const shot = defineCommand({
     name: 'shot',
@@ -138,7 +153,7 @@ describe('toolResult', () => {
 
     expect(result.isError).toBe(true)
     expect(result.structuredContent).toBeUndefined()
-    expect(JSON.parse(result.content[0]!.text)).toEqual({
+    expect(JSON.parse(firstText(result))).toEqual({
       error: {
         code: 'invalid_input',
         message: expect.stringContaining('crop'),
@@ -156,8 +171,51 @@ describe('toolResult', () => {
     )
 
     expect(result.isError).toBe(true)
-    expect(JSON.parse(result.content[0]!.text)).toMatchObject({
+    expect(JSON.parse(firstText(result))).toMatchObject({
       error: { code: 'tool_missing' },
     })
+  })
+})
+
+describe('imageBlocks', () => {
+  let dir: string
+
+  beforeEach(async () => {
+    dir = await mkdtemp(path.join(os.tmpdir(), 'loupe-images-'))
+  })
+
+  afterEach(() => rm(dir, { recursive: true, force: true }))
+
+  it('gives each PNG as an image block, in base64', async () => {
+    const file = path.join(dir, 'shot.png')
+    const png = Buffer.from('a small png')
+    await writeFile(file, png)
+
+    expect(await imageBlocks([file])).toEqual([
+      { type: 'image', data: png.toString('base64'), mimeType: 'image/png' },
+    ])
+  })
+
+  it('leaves out a PNG over the limit, and says how to make it smaller', async () => {
+    const file = path.join(dir, 'big.png')
+    await writeFile(file, Buffer.alloc(30_000))
+
+    expect(await imageBlocks([file], 20_000)).toEqual([
+      {
+        type: 'text',
+        text: `loupe left the image of ${file} out of this result: the PNG has 0.03 MB, and an image block takes 0.02 MB at most. Give a scale, for example 0.5, or a crop to make it smaller.`,
+      },
+    ])
+  })
+
+  it("says when it can't read a file", async () => {
+    const file = path.join(dir, 'gone.png')
+
+    expect(await imageBlocks([file])).toEqual([
+      {
+        type: 'text',
+        text: expect.stringContaining(`loupe can't read ${file} to show it:`),
+      },
+    ])
   })
 })

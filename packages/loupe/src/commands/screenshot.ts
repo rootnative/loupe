@@ -83,6 +83,7 @@ export const screenshotCommand = defineCommand({
       crop: changed.crop,
     }
   },
+  images: (shot) => [shot.file],
   format: (shot) => {
     const lines = [`Saved ${shot.file}`, describeDisplay(shot)]
     if (shot.crop) {

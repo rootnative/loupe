@@ -1,3 +1,4 @@
+import { readFile } from 'node:fs/promises'
 import {
   type Command,
   inputJsonSchema,
@@ -6,6 +7,7 @@ import {
   type Registry,
 } from '../core/command'
 import { type CommandResult } from '../core/run-command'
+import { round2 } from '../core/units'
 
 export type JsonObject = { [key: string]: unknown }
 
@@ -25,9 +27,58 @@ export interface McpTool {
  * fits the SDK's result type, which has an index signature.
  */
 export type McpToolResult = {
-  content: { type: 'text'; text: string }[]
+  content: ContentBlock[]
   structuredContent?: JsonObject
   isError?: true
+}
+
+export type TextBlock = { type: 'text'; text: string }
+export type ImageBlock = { type: 'image'; data: string; mimeType: 'image/png' }
+export type ContentBlock = TextBlock | ImageBlock
+
+/**
+ * The largest PNG in an image block, in bytes: 5 MB as base64, the most
+ * that Claude takes for one image.
+ */
+export const IMAGE_LIMIT = 3_750_000
+
+function megabytes(bytes: number): string {
+  return `${round2(bytes / 1_000_000)} MB`
+}
+
+/**
+ * Reads each PNG for an image block. A file that loupe can't read, or a
+ * PNG over `limit`, gives a text block that says why the image isn't there.
+ */
+export async function imageBlocks(
+  files: readonly string[],
+  limit = IMAGE_LIMIT,
+): Promise<ContentBlock[]> {
+  return Promise.all(
+    files.map(async (file): Promise<ContentBlock> => {
+      let png: Buffer
+      try {
+        png = await readFile(file)
+      } catch (error) {
+        const why = error instanceof Error ? error.message : String(error)
+        return {
+          type: 'text',
+          text: `loupe can't read ${file} to show it: ${why}`,
+        }
+      }
+      if (png.length > limit) {
+        return {
+          type: 'text',
+          text: `loupe left the image of ${file} out of this result: the PNG has ${megabytes(png.length)}, and an image block takes ${megabytes(limit)} at most. Give a scale, for example 0.5, or a crop to make it smaller.`,
+        }
+      }
+      return {
+        type: 'image',
+        data: png.toString('base64'),
+        mimeType: 'image/png',
+      }
+    }),
+  )
 }
 
 function toolSchema(

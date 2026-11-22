@@ -34,6 +34,11 @@ export interface Command<
   /** A short summary for a person at a terminal. JSON is the default. */
   format?(data: z.output<O>): string
   /**
+   * The PNG files of the result that an agent should see. The MCP result
+   * also holds each one as an image block; the CLI gives only the paths.
+   */
+  images?(data: z.output<O>): string[]
+  /**
    * For a command that checks something: false when the check failed. The
    * result is still a success with all its data, and the CLI exits 1.
    */

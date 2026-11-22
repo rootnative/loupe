@@ -15,9 +15,9 @@ import {
   createContext,
   type ProgressUpdate,
 } from '../core/context'
-import { type CommandResult, runCommand } from '../core/run-command'
+import { runCommand } from '../core/run-command'
 import { version } from '../version'
-import { toolResult, toolsOf } from './tools'
+import { imageBlocks, toolResult, toolsOf } from './tools'
 
 /** Runs each task after the one before it ends. */
 export type Serial = <T>(task: () => Promise<T>) => Promise<T>
@@ -73,10 +73,16 @@ export function createMcpServer(
         },
       }),
     }
-    const result: CommandResult = await oneAtATime(() =>
-      runCommand(registry, name, input, call),
-    )
-    return server.projectCallToolResult(toolResult(result), tool.outputSchema)
+    // The images are read in the queue too: the next call can write a new
+    // screenshot to the same file.
+    const output = await oneAtATime(async () => {
+      const result = await runCommand(registry, name, input, call)
+      const shown = toolResult(result)
+      const images = result.ok && registry.get(name)?.images?.(result.data)
+      if (images) shown.content.push(...(await imageBlocks(images)))
+      return shown
+    })
+    return server.projectCallToolResult(output, tool.outputSchema)
   })
 
   return server

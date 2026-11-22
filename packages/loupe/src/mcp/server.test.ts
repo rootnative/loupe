@@ -1,3 +1,6 @@
+import { mkdtemp, rm } from 'node:fs/promises'
+import os from 'node:os'
+import path from 'node:path'
 import { PassThrough } from 'node:stream'
 import { Client } from '@modelcontextprotocol/client'
 import { InMemoryTransport, ProtocolError } from '@modelcontextprotocol/server'
@@ -10,6 +13,7 @@ import { createRegistry, defineCommand, type Registry } from '../core/command'
 import { type CommandContext } from '../core/context'
 import { throwIfCancelled } from '../core/errors'
 import { byCommand, fakeContext, missingTool } from '../testing/fake-exec'
+import { recorded } from '../testing/fixtures'
 import { createMcpServer, serveMcp } from './server'
 
 const ERAS = [
@@ -115,6 +119,42 @@ describe.each(ERAS)('the MCP server, protocol $protocol', (era) => {
       {
         type: 'text',
         text: expect.stringContaining('"code":"invalid_input"'),
+      },
+    ])
+  })
+
+  it('shows a screenshot as an image block, after its JSON', async () => {
+    const adb = 'adb -s emulator-5554'
+    const shot = recorded('api-36/none/rotation-1/settings.png')
+    const { context } = fakeContext(
+      byCommand({
+        'adb devices -l': recorded('api-36/host/adb-devices-l.txt'),
+        [`${adb} shell getprop`]: recorded('api-36/device/getprop.txt'),
+        [`${adb} shell dumpsys window displays`]: recorded(
+          'api-36/none/rotation-1/settings/dumpsys-window-displays.txt',
+        ),
+        [`${adb} exec-out screencap -p`]: shot,
+      }),
+    )
+    const dir = await mkdtemp(path.join(os.tmpdir(), 'loupe-mcp-'))
+    closers.push(() => rm(dir, { recursive: true, force: true }))
+    const out = path.join(dir, 'settings.png')
+    const client = await connect(era, registry, context)
+
+    const result = await client.callTool({
+      name: 'screenshot',
+      arguments: { out },
+    })
+
+    expect(result.content).toMatchObject([
+      {
+        type: 'text',
+        text: expect.stringContaining(`"file":${JSON.stringify(out)}`),
+      },
+      {
+        type: 'image',
+        mimeType: 'image/png',
+        data: (shot.stdout as Buffer).toString('base64'),
       },
     ])
   })
