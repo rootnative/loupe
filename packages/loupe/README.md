@@ -159,6 +159,7 @@ Each finding gives the element and its numbers in dp.
 | `dismiss` | Close the top layer over the app: the keyboard, a dialog, a menu or a sheet of the app, a system sheet, or the notification shade. |
 | `background` | Send the app in front to the background. With `--for`, bring it back after that time. |
 | `foreground` | Bring an app back to the front, as a person does from Recents. |
+| `expo-warm` | Ask Metro (`npx expo start`) for the app and its bundle, so that the first open in Expo Go is fast. Give the SHA-256 of the bundle. |
 | `version` | Print the loupe version and the host it runs on. |
 
 ## The probe
@@ -171,7 +172,8 @@ loupe takes the safe area from Android.
 
 - On a real phone, give `--app`. loupe then reads the screen only while that
   app is in front, so it never shows another app to your agent.
-- loupe makes no network call. It talks to the device through adb only.
+- loupe makes no call over the network. It talks to the device through adb,
+  and `expo-warm` talks to Metro on this machine (127.0.0.1) only.
 
 ## License
 

@@ -286,12 +286,36 @@ function describeInsets(insets) {
  * cutout) to half a pixel, with no warning. The two landscapes must mirror
  * each other, so the probe follows each side.
  */
+/**
+ * `expo-warm` on the Metro of the probe app: the SDK and the folder of the
+ * app, and a bundle hash that two calls agree on (round 10: the bundle is
+ * the same bytes each time).
+ */
+function checkExpoWarm(sdk) {
+  const first = loupe('expo-warm', '--port', String(PORT))
+  const second = loupe('expo-warm', '--port', String(PORT))
+  const bundle = first.data?.bundle
+  check(
+    first.ok &&
+      first.data.app.sdkVersion === sdk &&
+      first.data.projectRoot?.endsWith('probe-app') &&
+      /^[0-9a-f]{64}$/.test(bundle?.sha256 ?? '') &&
+      bundle.bytes > 0,
+    `expo-warm: SDK ${first.data?.app.sdkVersion ?? first.error?.code}, ${bundle?.bytes} bytes in ${bundle?.ms} ms`,
+  )
+  check(
+    second.ok && second.data.bundle.sha256 === bundle?.sha256,
+    `expo-warm: a second call gives the same bundle hash (${second.data?.bundle.ms} ms)`,
+  )
+}
+
 async function checkProbeApp(metro) {
   const sdk = await installExpoGo(ADB)
   const warm = await warmMetro(metro)
   console.log(
     `Expo Go for SDK ${sdk} is in, and Metro is warm after ${warm} ms.`,
   )
+  checkExpoWarm(sdk)
   adb('reverse', `tcp:${PORT}`, `tcp:${PORT}`)
 
   const opened = loupe('open-url', `exp://127.0.0.1:${PORT}`, '--app', EXPO_GO)

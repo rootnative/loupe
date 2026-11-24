@@ -34,6 +34,16 @@ schema, so this skill doesn't repeat them. loupe works on Android 11
 4. Run one loupe call at a time on a device. Two touches at the same time
    lose events. The MCP server already runs its calls one after the other.
 
+## An app in Expo Go
+
+1. The user runs `npx expo start` in the folder of the app. loupe doesn't
+   start Metro. Give `port` when Metro doesn't use 8081.
+2. Run `expo-warm` before the first open: a cold bundle can take longer
+   than Expo Go waits. Keep its `sha256`.
+3. After an edit of the app's code, run `expo-warm` again. The same
+   `sha256` means that Metro didn't see the edit. Ask the user to restart
+   Metro with `npx expo start --clear`.
+
 ## Units
 
 - Each position and size is in dp, from the top-left corner of the
@@ -123,7 +133,7 @@ to do. The codes:
 | `device_ambiguous` | Run `devices`, then give `device`. |
 | `device_unavailable` | The device is offline, not authorized, or still booting. Wait, or ask the user. |
 | `tool_missing` | loupe can't find adb. Ask the user to set `ANDROID_HOME`. |
-| `tool_failed` | adb failed. Read the message. |
+| `tool_failed` | adb or Metro failed. Read the message: for a bundle, it gives Metro's error. |
 | `app_not_in_front` | Another app or a dialog is in front. Run `dismiss` for a dialog or a sheet, or `foreground` for the app. |
 | `not_idle` | The screen didn't keep still long enough to read it. Run `wait` with `still`, then try again. |
 | `element_not_found` | Run `ui`, find the element, and give its exact text, label, or id. |
@@ -131,8 +141,9 @@ to do. The codes:
 | `orientation_locked` | The app sets its own orientation. Check the orientations it allows. |
 | `timeout` | The screen didn't get there in time. The message says whether the action ran. |
 | `no_handler` | No app on the device opens that link. |
+| `no_server` | Nothing answers on the port, or it isn't Metro. Ask the user to run `npx expo start`, or give `port`. |
 | `invalid_input` | Fix the input. The message names the field. |
-| `unsupported` | loupe can't do this on this device or API level. |
+| `unsupported` | loupe can't do this on this device or API level, or with this server. The message says why. |
 | `cancelled` | The call was cancelled. loupe stopped at a safe point. |
 
 ## The CLI

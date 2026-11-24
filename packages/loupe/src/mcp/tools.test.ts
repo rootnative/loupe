@@ -19,6 +19,7 @@ import {
 const READ_ONLY = [
   'check',
   'devices',
+  'expo-warm',
   'insets',
   'measure',
   'screenshot',

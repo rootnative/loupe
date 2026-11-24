@@ -15,6 +15,7 @@ export const ERROR_CODES = [
   'element_not_found',
   'element_ambiguous',
   'no_handler',
+  'no_server',
   'cancelled',
   'internal',
 ] as const

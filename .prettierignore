@@ -5,6 +5,9 @@ dist
 coverage
 pnpm-lock.yaml
 
+# The fixtures keep the bytes that the tools wrote.
+packages/loupe/fixtures
+
 # Markdown is written by hand, not formatted. Prettier pads every table cell
 # to the widest row and reflows code inside fences. The ignore is here as well
 # as in the `format` globs, so an editor with format-on-save keeps the rule.

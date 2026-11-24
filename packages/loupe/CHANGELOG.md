@@ -4,6 +4,11 @@ All notable changes to `@rootnative/loupe` are in this file. The format follows 
 
 ## [Unreleased]
 
+### Added
+
+- **`expo-warm`**: it asks Metro (`npx expo start`) for the manifest of your app and its launch bundle, as Expo Go does on its first open. Then the first open doesn't wait for a cold bundle. It gives the SDK version and the folder of the app, and the time, the size, and the SHA-256 of the bundle: after an edit, the same hash means that Metro didn't see the edit. It asks Metro on 127.0.0.1 only.
+- **The error code `no_server`**: nothing answers on the port of Metro, or the server there isn't Metro.
+
 ### Fixed
 
 - `dismiss` sends Back or Escape only when the input focus is on the layer that it closes. On a busy device, Android moves the input focus a moment after the window focus. A Back right after the notification shade closed could reach the shade, and the share sheet under it stayed open. When the input focus doesn't arrive within the limit, `dismiss` gives `timeout` and sends no key.

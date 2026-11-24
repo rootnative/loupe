@@ -1,0 +1,9 @@
+200 OK
+cache-control: private, max-age=0
+connection: keep-alive
+content-type: application/expo+json
+date: Tue, 24 Nov 2026 19:37:14 GMT
+expo-protocol-version: 0
+expo-sfv-version: 0
+keep-alive: timeout=5
+transfer-encoding: chunked

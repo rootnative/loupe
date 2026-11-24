@@ -42,7 +42,14 @@ export function fakeContext(
     }
   }
 
-  return { context: { exec, env }, calls }
+  return { context: { exec, env, fetch: noFetch }, calls }
+}
+
+/** The `fetch` of a test that makes no HTTP call: each call fails. */
+const noFetch: typeof fetch = async (input) => {
+  throw new Error(
+    `No fake response for: ${input instanceof Request ? input.url : String(input)}`,
+  )
 }
 
 /**
