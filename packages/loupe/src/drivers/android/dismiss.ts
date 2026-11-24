@@ -9,6 +9,7 @@ import { requireAppOnDevice } from './foreground'
 import {
   type InsetSource,
   NOT_RESPONDING,
+  parseInputFocus,
   parseWindowInsets,
   parseWindowList,
   type WindowDisplay,
@@ -359,6 +360,42 @@ async function sendKey(target: AndroidTarget, key: string): Promise<void> {
   await target.adb.run(['shell', 'input', 'keyevent', key])
 }
 
+/** loupe closes these layers with no key. */
+const CLOSED_WITHOUT_KEY = new Set<Layer>([
+  'notification-shade',
+  'not-responding',
+  'stylus-sheet',
+])
+
+/**
+ * Waits until the input dispatcher's focus is on the window in focus. Right
+ * after a layer goes, the window manager moves its focus first and the input
+ * dispatcher after it, so a key sent in between goes to the layer that is
+ * closing (13 ms after the shade on a busy API 36 emulator). When `dumpsys
+ * input` has no focus that loupe can read, it doesn't wait.
+ */
+async function untilInputFocus(
+  target: AndroidTarget,
+  front: LayerFront,
+  { display }: Screen,
+  { limit, interval }: Required<Omit<DismissOptions, 'all'>>,
+): Promise<void> {
+  if (!display.focusId) return
+  const start = Date.now()
+  for (;;) {
+    const dump = await target.adb.text(['shell', 'dumpsys', 'input'])
+    const focus = parseInputFocus(dump)
+    if (focus === undefined || focus === display.focusId) return
+    if (Date.now() - start >= limit) {
+      throw new LoupeError(
+        'timeout',
+        `The input focus didn't move to ${LAYER_NAMES[front.layer]} within ${limit} ms, so loupe sent no key: it could reach another window. Try again in a moment.`,
+      )
+    }
+    await sleep(interval)
+  }
+}
+
 /**
  * Closes the layer in front. In Gboard's stylus mode, Back closes the
  * keyboard but also reaches the app, and doesn't close the stylus sheet;
@@ -484,6 +521,9 @@ export async function dismissAndroid(
         return { app, closed, next: front.layer }
       }
 
+      if (!CLOSED_WITHOUT_KEY.has(front.layer)) {
+        await untilInputFocus(target, front, screen, options)
+      }
       const start = Date.now()
       const way = await close(target, front, screen)
       const after = await untilGone(target, front, options)

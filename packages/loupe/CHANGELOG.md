@@ -4,6 +4,10 @@ All notable changes to `@rootnative/loupe` are in this file. The format follows 
 
 ## [Unreleased]
 
+### Fixed
+
+- `dismiss` sends Back or Escape only when the input focus is on the layer that it closes. On a busy device, Android moves the input focus a moment after the window focus. A Back right after the notification shade closed could reach the shade, and the share sheet under it stayed open. When the input focus doesn't arrive within the limit, `dismiss` gives `timeout` and sends no key.
+
 ## [0.0.0-alpha.1] - 2026-11-24
 
 loupe drives an Android emulator or device, measures each screen of your app in dp, and gives your agent "pass" or "fail" with the numbers. It works on Android 11 (API level 30) and later.

@@ -33,6 +33,11 @@ function emulator(displays: readonly string[], screens = [APP]) {
       [`${ADB} shell dumpsys window windows`]: recorded(
         `${SHEETS}/open.dumpsys-window-windows.txt`,
       ),
+      // No input focus to read, so dismiss doesn't wait for it before a key.
+      // The driver's tests cover that wait.
+      [`${ADB} shell dumpsys input`]: {
+        stdout: 'INPUT MANAGER (dumpsys input)\n',
+      },
       [`${ADB} shell input keyevent KEYCODE_BACK`]: {},
       [`${ADB} shell cmd statusbar collapse`]: {},
       [`${ADB} exec-out uiautomator dump /dev/tty`]: screens.map((stdout) => ({

@@ -6,6 +6,7 @@ import {
   parseAvdList,
   parseEmuAvdName,
   parseGetprop,
+  parseInputFocus,
   parseNightMode,
   parseRecentTasks,
   parseUiautomatorDump,
@@ -441,6 +442,50 @@ describe('parseWindowList', () => {
     expect(
       parseWindowList('WINDOW MANAGER WINDOWS (dumpsys window windows)\n'),
     ).toEqual([])
+  })
+})
+
+describe('parseInputFocus', () => {
+  const dump = recordedText('api-36/smoke/sheets-share.dumpsys-input.txt')
+  const sheet =
+    'com.android.intentresolver/com.android.intentresolver.ChooserActivityLauncher'
+  const focused = (line: string) =>
+    dump.replace(`displayId=0, name='1cfa62f ${sheet}'`, line)
+
+  it('gives the hash of the window with the input focus', () => {
+    expect(parseInputFocus(dump)).toBe('1cfa62f')
+    expect(
+      parseWindowDisplays(
+        recordedText('api-36/smoke/sheets-share.dumpsys-window-displays.txt'),
+      )?.focusId,
+    ).toBe('1cfa62f')
+  })
+
+  it('reads the older name, Window{<hash> u0 <title>}', () => {
+    expect(
+      parseInputFocus(focused(`displayId=0, name='Window{2b4e1 u0 ${sheet}}'`)),
+    ).toBe('2b4e1')
+  })
+
+  it('gives null when no window on the display has the input focus', () => {
+    expect(
+      parseInputFocus(
+        dump.replace(/FocusedWindows:\n.*\n/, 'FocusedWindows: <none>\n'),
+      ),
+    ).toBeNull()
+    expect(
+      parseInputFocus(focused(`displayId=2, name='1cfa62f ${sheet}'`)),
+    ).toBeNull()
+    expect(
+      parseInputFocus(focused(`displayId=2, name='1cfa62f ${sheet}'`), 2),
+    ).toBe('1cfa62f')
+  })
+
+  it("gives undefined for a dump that it can't read", () => {
+    expect(parseInputFocus('INPUT MANAGER (dumpsys input)\n')).toBeUndefined()
+    expect(
+      parseInputFocus(focused(`displayId=0, name='${sheet}'`)),
+    ).toBeUndefined()
   })
 })
 

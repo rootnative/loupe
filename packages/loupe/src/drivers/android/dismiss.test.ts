@@ -1,5 +1,10 @@
 import { describe, expect, it } from 'vitest'
-import { byCommand, type FakeRun, fakeContext } from '../../testing/fake-exec'
+import {
+  byCommand,
+  type FakeHandler,
+  type FakeRun,
+  fakeContext,
+} from '../../testing/fake-exec'
 import { API_LEVELS, recorded, recordedText } from '../../testing/fixtures'
 import { selectAndroidDevice } from './devices'
 import { dismissAndroid, systemLayerOf } from './dismiss'
@@ -28,6 +33,38 @@ function withFullScreen(dump: string, attributes: string): string {
 /** The dump with the focus on this window. */
 function focusOn(dump: string, id: string, title: string): string {
   return dump.replace(FOCUS, `mCurrentFocus=Window{${id} u0 ${title}}`)
+}
+
+/** The smoke run's share sheet: the window dump and the input dump. */
+const SHEET_DISPLAYS = recordedText(
+  'api-36/smoke/sheets-share.dumpsys-window-displays.txt',
+)
+const SHEET_INPUT = recordedText('api-36/smoke/sheets-share.dumpsys-input.txt')
+const INPUT_FOCUS = /(FocusedWindows:\n\s*displayId=0, name=')[^']*'/
+
+/** The input dump with the input focus on this window: `<hash> <title>`. */
+function inputOn(name: string): string {
+  return SHEET_INPUT.replace(INPUT_FOCUS, `$1${name}'`)
+}
+
+/**
+ * When the table has no `dumpsys input`, the input focus is on the window in
+ * focus in the last `dumpsys window displays`, as on an idle device.
+ */
+function inputInStep(table: FakeHandler): FakeHandler {
+  let focus = ''
+  return (call) => {
+    const run = table(call)
+    const args = call.args.slice(2).join(' ')
+    if (args === 'shell dumpsys window displays' && run) {
+      const display = parseWindowDisplays(String(run.stdout ?? ''))
+      focus = display?.focusId ? `${display.focusId} ${display.focus}` : ''
+    }
+    if (args === 'shell dumpsys input' && !run) {
+      return { stdout: inputOn(focus) }
+    }
+    return run
+  }
 }
 
 /** The title of the window in front while round 8 had the sheet open. */
@@ -79,36 +116,44 @@ function emulator(
   const phone = !serial.startsWith('emulator-')
   const adb = `adb -s ${serial}`
   const { context, calls } = fakeContext(
-    byCommand({
-      'adb devices -l': phone
-        ? {
-            stdout: `List of devices attached\n${serial}               device product:phone model:Phone_Model device:phone transport_id:4\n\n`,
-          }
-        : recorded(`api-${level}/host/adb-devices-l.txt`),
-      [`${adb} shell getprop`]: phone
-        ? {
-            stdout: `[ro.build.version.sdk]: [${level}]\n[sys.boot_completed]: [1]\n`,
-          }
-        : recorded(`api-${level}/device/getprop.txt`),
-      [`${adb} shell dumpsys window displays`]: displays.map((stdout) => ({
-        stdout,
-      })),
-      [`${adb} shell dumpsys window windows`]: recorded(
-        `api-${level}/sheets/alert/back/open.dumpsys-window-windows.txt`,
-      ),
-      [`${adb} shell input keyevent KEYCODE_BACK`]: {},
-      [`${adb} shell cmd statusbar collapse`]: {},
-      [`${adb} exec-out uiautomator dump /dev/tty`]: { stdout: appDump(level) },
-      ...Object.fromEntries(
-        Object.entries(more).map(([args, run]) => [`${adb} ${args}`, run]),
-      ),
-    }),
+    inputInStep(
+      byCommand({
+        'adb devices -l': phone
+          ? {
+              stdout: `List of devices attached\n${serial}               device product:phone model:Phone_Model device:phone transport_id:4\n\n`,
+            }
+          : recorded(`api-${level}/host/adb-devices-l.txt`),
+        [`${adb} shell getprop`]: phone
+          ? {
+              stdout: `[ro.build.version.sdk]: [${level}]\n[sys.boot_completed]: [1]\n`,
+            }
+          : recorded(`api-${level}/device/getprop.txt`),
+        [`${adb} shell dumpsys window displays`]: displays.map((stdout) => ({
+          stdout,
+        })),
+        [`${adb} shell dumpsys window windows`]: recorded(
+          `api-${level}/sheets/alert/back/open.dumpsys-window-windows.txt`,
+        ),
+        [`${adb} shell input keyevent KEYCODE_BACK`]: {},
+        [`${adb} shell cmd statusbar collapse`]: {},
+        [`${adb} exec-out uiautomator dump /dev/tty`]: {
+          stdout: appDump(level),
+        },
+        ...Object.fromEntries(
+          Object.entries(more).map(([args, run]) => [`${adb} ${args}`, run]),
+        ),
+      }),
+    ),
   )
-  const sent = () =>
+  const shellCalls = (pattern: RegExp) => () =>
     calls
       .map((call) => call.args.slice(3).join(' '))
-      .filter((args) => /keyevent|statusbar|input tap/.test(args))
-  return { target: () => selectAndroidDevice(context), sent }
+      .filter((args) => pattern.test(args))
+  return {
+    target: () => selectAndroidDevice(context),
+    sent: shellCalls(/keyevent|statusbar|input tap/),
+    steps: shellCalls(/keyevent|statusbar|input tap|dumpsys input$/),
+  }
 }
 
 const closed = (layer: string, way: string) => ({
@@ -377,6 +422,71 @@ describe('dismissAndroid', () => {
       message: expect.stringMatching(
         /^loupe closed the notification shade with a status bar collapse \(\d+ ms\)\. host\.exp\.exponent isn't in front/,
       ),
+    })
+  })
+
+  describe('the input focus, with the shade over the share sheet', () => {
+    const sheet = parseWindowDisplays(SHEET_DISPLAYS)
+    const onSheet = `${sheet?.focusId} ${sheet?.focus}`
+    const shadeOver = focusOn(SHEET_DISPLAYS, '5e7a11', SHADE)
+    const onShade = `5e7a11 ${SHADE}`
+    const input = (...names: string[]) =>
+      names.map((name) => ({ stdout: inputOn(name) }))
+
+    it('sends Back only when the input focus left the shade', async () => {
+      const { target, steps } = emulator(
+        36,
+        [shadeOver, SHEET_DISPLAYS, dumps.main],
+        { 'shell dumpsys input': input(onShade, onSheet) },
+      )
+
+      expect(
+        await dismissAndroid(await target(), EXPO_GO, {
+          limit: 1000,
+          interval: 0,
+          all: true,
+        }),
+      ).toEqual({
+        app: EXPO_GO,
+        closed: [
+          closed('notification-shade', 'collapse'),
+          closed('share-sheet', 'back'),
+        ],
+      })
+      expect(steps()).toEqual([
+        'cmd statusbar collapse',
+        'dumpsys input',
+        'dumpsys input',
+        'input keyevent KEYCODE_BACK',
+      ])
+    })
+
+    it('sends no key when the input focus stays on the shade', async () => {
+      const { target, sent } = emulator(36, [shadeOver, SHEET_DISPLAYS], {
+        'shell dumpsys input': input(onShade),
+      })
+
+      await expect(
+        dismissAndroid(await target(), EXPO_GO, { ...FAST, all: true }),
+      ).rejects.toMatchObject({
+        code: 'timeout',
+        message: expect.stringMatching(
+          /^loupe closed the notification shade with a status bar collapse \(\d+ ms\)\. The input focus didn't move to the share sheet within 0 ms, so loupe sent no key: it could reach another window\. Try again in a moment\.$/,
+        ),
+      })
+      expect(sent()).toEqual(['cmd statusbar collapse'])
+    })
+
+    it("doesn't wait when the input dump has no focus that it can read", async () => {
+      const { target, steps } = emulator(36, [SHEET_DISPLAYS, dumps.main], {
+        'shell dumpsys input': { stdout: 'INPUT MANAGER (dumpsys input)\n' },
+      })
+
+      expect(await dismissAndroid(await target(), EXPO_GO, FAST)).toEqual({
+        app: EXPO_GO,
+        closed: [closed('share-sheet', 'back')],
+      })
+      expect(steps()).toEqual(['dumpsys input', 'input keyevent KEYCODE_BACK'])
     })
   })
 

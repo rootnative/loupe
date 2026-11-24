@@ -155,6 +155,36 @@ export function parseWindowDisplays(
   }
 }
 
+const INPUT_FOCUS_HEADER = /^\s*FocusedWindows:(.*)$/m
+const INPUT_FOCUS_ENTRY = /^\s*displayId=(-?\d+), name='(.*)'\s*$/
+const INPUT_WINDOW_HASH = /^(?:Window\{)?([0-9a-f]+) /
+
+/**
+ * Reads the window that has the input focus on one display from `dumpsys
+ * input`: its hash, as `mCurrentFocus` in `dumpsys window displays` shows
+ * it. The name is `<hash> <title>` on API 36, and `Window{<hash> u0
+ * <title>}` on older levels. The input dispatcher moves its focus a moment
+ * after the window manager. `null`: no window on that display has it.
+ * `undefined`: the dump has no focus that loupe can read.
+ */
+export function parseInputFocus(
+  text: string,
+  displayId = 0,
+): string | null | undefined {
+  const header = INPUT_FOCUS_HEADER.exec(text)
+  if (!header) return undefined
+  if (header[1]?.includes('<none>')) return null
+
+  const after = text.slice(header.index + header[0].length).split(/\r?\n/)
+  for (const line of after.slice(1)) {
+    const entry = INPUT_FOCUS_ENTRY.exec(line)
+    if (!entry) break
+    if (Number(entry[1]) !== displayId) continue
+    return INPUT_WINDOW_HASH.exec(entry[2] ?? '')?.[1]
+  }
+  return null
+}
+
 /** One window of `dumpsys window windows`. */
 export interface WindowEntry {
   /** The hash in `Window{…}`, as `mCurrentFocus` shows it. */
