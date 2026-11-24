@@ -4,9 +4,12 @@ All notable changes to `@rootnative/loupe-probe` are in this file. The format fo
 
 ## [Unreleased]
 
+## [0.0.0-alpha.1] - 2026-11-24
+
 ### Added
 
 - **`<LoupeProbe />`**. Render it once, inside your `SafeAreaProvider`. In development it gives loupe the safe-area insets, the window size, the scale, the layout direction, the colour scheme, and the `route` that you pass. It renders nothing in a release build.
 - Peer dependencies: `react` 18 or later, `react-native` 0.73 or later, and `react-native-safe-area-context` 4 or later.
 
-[unreleased]: https://github.com/rootnative/loupe/commits/main
+[unreleased]: https://github.com/rootnative/loupe/compare/loupe@0.0.0-alpha.1...HEAD
+[0.0.0-alpha.1]: https://github.com/rootnative/loupe/releases/tag/loupe@0.0.0-alpha.1

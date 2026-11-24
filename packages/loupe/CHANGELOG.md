@@ -4,6 +4,8 @@ All notable changes to `@rootnative/loupe` are in this file. The format follows 
 
 ## [Unreleased]
 
+## [0.0.0-alpha.1] - 2026-11-24
+
 loupe drives an Android emulator or device, measures each screen of your app in dp, and gives your agent "pass" or "fail" with the numbers. It works on Android 11 (API level 30) and later.
 
 ### Added
@@ -18,4 +20,5 @@ loupe drives an Android emulator or device, measures each screen of your app in 
 - **The device:** `devices`, `open-url`, `rotate`, `theme`, `background`, `foreground`, and `dismiss`. `dismiss` closes a system sheet, a dialog, the keyboard, or an overlay of your app.
 - **The probe:** when your app renders `<LoupeProbe />` from `@rootnative/loupe-probe`, `insets` and the rules use the app's own safe area.
 
-[unreleased]: https://github.com/rootnative/loupe/commits/main
+[unreleased]: https://github.com/rootnative/loupe/compare/loupe@0.0.0-alpha.1...HEAD
+[0.0.0-alpha.1]: https://github.com/rootnative/loupe/releases/tag/loupe@0.0.0-alpha.1
