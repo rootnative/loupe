@@ -250,13 +250,14 @@ export interface WarmOptions {
 /**
  * Asks Metro for its status, the manifest and the launch bundle, as Expo
  * Go does on its first open. Then Metro has the bundle ready, and Expo Go
- * doesn't wait for a cold one.
+ * doesn't wait for a cold one. These are the first 3 of `total` progress
+ * steps.
  */
 export async function warmExpo(
   context: CommandContext,
   { port = DEFAULT_PORT, timeout = DEFAULT_BUNDLE_TIMEOUT }: WarmOptions,
+  total = 3,
 ) {
-  const total = 3
   await readMetroStatus(context, port)
   context.progress?.({ progress: 1, total, message: 'Metro runs.' })
   const app = await readExpoApp(context, port)

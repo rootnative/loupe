@@ -316,11 +316,21 @@ async function checkProbeApp(metro) {
     `Expo Go for SDK ${sdk} is in, and Metro is warm after ${warm} ms.`,
   )
   checkExpoWarm(sdk)
-  adb('reverse', `tcp:${PORT}`, `tcp:${PORT}`)
 
-  const opened = loupe('open-url', `exp://127.0.0.1:${PORT}`, '--app', EXPO_GO)
-  check(opened.ok, 'open-url: Expo Go opens the probe app')
-  let found = await waitForProbe(300_000)
+  // The first open of a fresh Expo Go: `expo-open` does the `adb reverse`,
+  // and closes the onboarding sheet and the developer menu.
+  const opened = loupe(
+    'expo-open',
+    '--port',
+    String(PORT),
+    '--timeout',
+    '300000',
+  )
+  check(
+    opened.ok && opened.data.probe && opened.data.route === '/',
+    `expo-open: the probe app on ${opened.data?.route ?? opened.error?.code} after ${opened.data?.ms} ms; closed ${opened.data?.closed.join(', ') || 'nothing'}; opened ${opened.data?.opens} times; Expo Go ${opened.data?.expoGo}`,
+  )
+  let found = await waitForProbe(60_000)
   if (found.screen.data?.probe) {
     // A sheet can show a moment after the app.
     await sleep(3000)

@@ -5,6 +5,7 @@ import { devicesCommand } from './devices'
 import { dismissCommand } from './dismiss'
 import { doubleTapCommand } from './double-tap'
 import { dragCommand } from './drag'
+import { expoOpenCommand } from './expo-open'
 import { expoWarmCommand } from './expo-warm'
 import { foregroundCommand } from './foreground'
 import { holdCommand } from './hold'
@@ -33,6 +34,7 @@ export const registry = createRegistry([
   dismissCommand,
   doubleTapCommand,
   dragCommand,
+  expoOpenCommand,
   expoWarmCommand,
   foregroundCommand,
   holdCommand,

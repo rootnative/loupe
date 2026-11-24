@@ -7,6 +7,7 @@ All notable changes to `@rootnative/loupe` are in this file. The format follows 
 ### Added
 
 - **`expo-warm`**: it asks Metro (`npx expo start`) for the manifest of your app and its launch bundle, as Expo Go does on its first open. Then the first open doesn't wait for a cold bundle. It gives the SDK version and the folder of the app, and the time, the size, and the SHA-256 of the bundle: after an edit, the same hash means that Metro didn't see the edit. It asks Metro on 127.0.0.1 only.
+- **`expo-open`**: it opens your app in Expo Go at a route, through `adb reverse` of the port of Metro. It warms the bundle first, closes Expo Go's onboarding sheet and developer menu, opens the link again when Expo Go loses it, and waits until the app shows: on the route when your app has the probe, else until the screen keeps still. It warns when Expo Go isn't for the SDK of your app, and with no Expo Go it says how to install it.
 - **The error code `no_server`**: nothing answers on the port of Metro, or the server there isn't Metro.
 
 ### Fixed

@@ -1,22 +1,17 @@
 import { createHash } from 'node:crypto'
-import { readFileSync } from 'node:fs'
 import { describe, expect, it } from 'vitest'
 import { type CommandContext, type ProgressUpdate } from '../core/context'
 import { runCommand } from '../core/run-command'
 import { fakeContext } from '../testing/fake-exec'
 import { type FakeRoute, fakeFetch, refused } from '../testing/fake-fetch'
+import {
+  BUNDLE,
+  BUNDLE_PATH,
+  METRO_MANIFEST as MANIFEST,
+  METRO_STATUS as STATUS,
+  metroRoutes,
+} from '../testing/metro'
 import { registry } from './index'
-
-// Round 10, API 36: the manifest is the same on each level but its ids.
-const metro = (file: string): string =>
-  readFileSync(
-    new URL(`../../fixtures/expo/metro/${file}`, import.meta.url),
-    'utf8',
-  )
-const STATUS = metro('status.txt')
-const MANIFEST = metro('manifest.json')
-const BUNDLE_PATH = '/apps/probe-app/index.ts.bundle'
-const BUNDLE = 'var __BUNDLE_START_TIME__=0;'
 
 function contextWith(routes: Record<string, FakeRoute>): {
   context: CommandContext
@@ -26,15 +21,6 @@ function contextWith(routes: Record<string, FakeRoute>): {
   const { context } = fakeContext(() => undefined)
   return { context: { ...context, fetch }, requests }
 }
-
-const metroRoutes = (bundle: FakeRoute = { body: BUNDLE }) => ({
-  '/status': { body: STATUS },
-  '/': {
-    body: MANIFEST,
-    headers: { 'content-type': 'application/expo+json' },
-  },
-  [BUNDLE_PATH]: bundle,
-})
 
 describe('expo-warm', () => {
   it('reads the app from the manifest, and hashes the bundle', async () => {

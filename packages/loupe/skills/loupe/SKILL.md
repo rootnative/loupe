@@ -38,11 +38,15 @@ schema, so this skill doesn't repeat them. loupe works on Android 11
 
 1. The user runs `npx expo start` in the folder of the app. loupe doesn't
    start Metro. Give `port` when Metro doesn't use 8081.
-2. Run `expo-warm` before the first open: a cold bundle can take longer
-   than Expo Go waits. Keep its `sha256`.
-3. After an edit of the app's code, run `expo-warm` again. The same
-   `sha256` means that Metro didn't see the edit. Ask the user to restart
-   Metro with `npx expo start --clear`.
+2. Open the app with `expo-open` and a route, for example `/settings`. It
+   warms the bundle, closes Expo Go's onboarding sheet and developer menu,
+   and waits until the app shows: on the route when the app has the probe,
+   else until the screen keeps still. Then give `app` `host.exp.exponent`
+   in each call.
+3. After an edit of the app's code, run `expo-warm`, and compare its
+   `sha256` with the one before the edit. The same hash means that Metro
+   didn't see the edit. Ask the user to restart Metro with
+   `npx expo start --clear`.
 
 ## Units
 
@@ -53,9 +57,9 @@ schema, so this skill doesn't repeat them. loupe works on Android 11
 
 ## Check one screen
 
-1. Open the screen with `open-url` and its deep link. Give `waitText` (a
-   text on that screen) or `waitStill`, so the call ends when the screen is
-   there.
+1. Open the screen with `open-url` and its deep link (in Expo Go, with
+   `expo-open`). Give `waitText` (a text on that screen) or `waitStill`, so
+   the call ends when the screen is there.
 2. Run `check`. Read `passed`, then the findings of each rule that failed.
 3. Run `rotate` with `landscape-left`, then `check` again.
 4. Run `rotate` with `landscape-right`, then `check` again. A cutout on one
@@ -140,7 +144,7 @@ to do. The codes:
 | `element_ambiguous` | More than one element matches. Give its `id`. |
 | `orientation_locked` | The app sets its own orientation. Check the orientations it allows. |
 | `timeout` | The screen didn't get there in time. The message says whether the action ran. |
-| `no_handler` | No app on the device opens that link. |
+| `no_handler` | No app on the device opens that link. With no Expo Go, ask the user to install it: press "a" in `npx expo start`. |
 | `no_server` | Nothing answers on the port, or it isn't Metro. Ask the user to run `npx expo start`, or give `port`. |
 | `invalid_input` | Fix the input. The message names the field. |
 | `unsupported` | loupe can't do this on this device or API level, or with this server. The message says why. |
