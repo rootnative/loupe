@@ -141,7 +141,9 @@ jobs:
           sudo udevadm trigger --name-match=kvm
 
       # The same emulator as the fixture recorder, so the checks of the
-      # script hold for its screen, its insets and its Settings app.
+      # script hold for its screen, its insets and its Settings app. With
+      # the default 2560 MB, API 36 paged after boot and Settings stopped
+      # responding; the RAM changes no screen.
       - name: Run the smoke test on an emulator
         uses: reactivecircus/android-emulator-runner@a421e43855164a8197daf9d8d40fe71c6996bb0d # v2.38.0
         with:
@@ -149,6 +151,7 @@ jobs:
           target: google_apis
           arch: x86_64
           profile: pixel_6
+          ram-size: 4096M
           disable-animations: true
           script: node scripts/android-smoke.mjs "${{ runner.temp }}/android-smoke" ${{ matrix.api-level }}
 

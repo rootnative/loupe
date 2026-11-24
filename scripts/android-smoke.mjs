@@ -224,31 +224,75 @@ function findNode(nodes, test) {
   return undefined
 }
 
+/** The guest's CPU ticks from the first line of `/proc/stat`. */
+function cpuTicks() {
+  const values = adb('shell', 'cat', '/proc/stat')
+    .split('\n')[0]
+    .trim()
+    .split(/\s+/)
+    .slice(1, 9)
+    .map(Number)
+  const [, , , idle = 0, iowait = 0] = values
+  return {
+    idle: idle + iowait,
+    total: values.reduce((sum, value) => sum + value, 0),
+  }
+}
+
+/** The guest's `MemAvailable`, in MB. */
+function memoryAvailable() {
+  const kb = /^MemAvailable:\s+(\d+) kB/m.exec(
+    adb('shell', 'cat', '/proc/meminfo'),
+  )?.[1]
+  return kb === undefined ? '?' : String(Math.round(Number(kb) / 1024))
+}
+
+// The guest is quiet when this share of its CPU is idle in a window.
+const QUIET_IDLE = 0.7
+const QUIET_WINDOW_MS = 2000
+
 /**
- * Waits until 3 `input` calls in a row are fast, for up to 5 minutes. Right
- * after boot the emulator is busy for a while, and the gestures through
- * `input` get slow: in CI a drag of 300 ms once took 6 s. On API 30 each
- * call starts a Java process, so fast there is under 1 s.
+ * Waits until 3 `input` calls in a row are fast and the guest's CPU is
+ * quiet in the 3 windows after them, for up to 5 minutes. Right after boot
+ * the emulator is busy for a while: in CI a drag of 300 ms once took 6 s,
+ * and on API 36 Settings stopped responding at a load of 38, while `input`
+ * was already fast. On API 30 each `input` call starts a Java process, so
+ * fast there is under 1 s, and the window starts after the call.
  */
 async function settle() {
   const limit = apiLevel === 30 ? 1000 : 100
   const start = Date.now()
+  const seconds = () => Math.round((Date.now() - start) / 1000)
+  console.log(`At the start: MemAvailable ${memoryAvailable()} MB.`)
   let fast = 0
-  while (fast < 3 && Date.now() - start < 300_000) {
+  let quiet = 0
+  let idle = 0
+  let inputMs = 0
+  let reported = 0
+  while ((fast < 3 || quiet < 3) && Date.now() - start < 300_000) {
     const before = performance.now()
     adb('shell', 'input', 'keyevent', '0')
-    if (performance.now() - before < limit) {
-      fast += 1
-    } else {
-      fast = 0
-      await sleep(2000)
+    inputMs = Math.round(performance.now() - before)
+    fast = inputMs < limit ? fast + 1 : 0
+
+    const from = cpuTicks()
+    await sleep(QUIET_WINDOW_MS)
+    const to = cpuTicks()
+    idle = (to.idle - from.idle) / Math.max(1, to.total - from.total)
+    quiet = idle >= QUIET_IDLE ? quiet + 1 : 0
+
+    if (Date.now() - reported >= 30_000) {
+      reported = Date.now()
+      console.log(
+        `Waiting for a quiet emulator, ${seconds()} s: input ${inputMs} ms, CPU idle ${Math.round(idle * 100)} %.`,
+      )
     }
   }
-  const seconds = Math.round((Date.now() - start) / 1000)
+  const state = `input ${inputMs} ms, CPU idle ${Math.round(idle * 100)} %, MemAvailable ${memoryAvailable()} MB`
   console.log(
-    fast === 3
-      ? `The emulator settled in ${seconds} s.`
-      : `The emulator was still busy after ${seconds} s. The checks run anyway.`,
+    fast >= 3 && quiet >= 3
+      ? `The emulator settled in ${seconds()} s: ${state}.`
+      : `The emulator was still busy after ${seconds()} s (${state}). The checks run anyway.`,
   )
 }
 
