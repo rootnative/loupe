@@ -42,15 +42,12 @@ const manifestSchema = z.object({
           name: z.string().optional(),
           slug: z.string().optional(),
           sdkVersion: z.string().optional(),
-          extra: z
-            .object({
-              supportsRTL: z.unknown().optional(),
-              forcesRTL: z.unknown().optional(),
-            })
-            .optional(),
-          _internal: z
-            .object({ dynamicConfigPath: z.string().nullish() })
-            .optional(),
+          // Read with type checks in `readExpoApp`: Expo CLI sends
+          // `_internal.dynamicConfigPath` as `{}` when the app has no
+          // dynamic config, and a field of another type must not drop the
+          // whole manifest.
+          extra: z.unknown().optional(),
+          _internal: z.unknown().optional(),
         })
         .optional(),
       expoGo: z
@@ -63,6 +60,13 @@ const manifestSchema = z.object({
     })
     .optional(),
 })
+
+/** The fields of an object, or none for another value. */
+function fieldsOf(value: unknown): Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : {}
+}
 
 /** What loupe reads from the manifest that Metro gives Expo Go. */
 export interface ExpoApp {
@@ -201,15 +205,18 @@ export async function readExpoApp(
 
   const client = manifest.extra?.expoClient
   const bundle = new URL(manifest.launchAsset.url, metroBase(port))
+  const extra = fieldsOf(client?.extra)
+  const dynamicConfigPath = fieldsOf(client?._internal).dynamicConfigPath
   return {
     name: client?.name,
     slug: client?.slug,
     sdkVersion: client?.sdkVersion,
     projectRoot: manifest.extra?.expoGo?.developer?.projectRoot,
-    dynamicConfigPath: client?._internal?.dynamicConfigPath ?? undefined,
+    dynamicConfigPath:
+      typeof dynamicConfigPath === 'string' ? dynamicConfigPath : undefined,
     rtl: {
-      supports: client?.extra?.supportsRTL === true,
-      forces: client?.extra?.forcesRTL === true,
+      supports: extra.supportsRTL === true,
+      forces: extra.forcesRTL === true,
     },
     bundlePath: `${bundle.pathname}${bundle.search}`,
   }

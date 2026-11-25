@@ -87,6 +87,23 @@ describe('expo-warm', () => {
     ])
   })
 
+  it('reads a manifest with no dynamic config, where Expo CLI sends {} as its path', async () => {
+    const manifest = JSON.parse(MANIFEST)
+    manifest.extra.expoClient._internal.dynamicConfigPath = {}
+    manifest.extra.expoClient.extra = { router: {} }
+    const { context } = contextWith({
+      ...metroRoutes(),
+      '/': { body: JSON.stringify(manifest) },
+    })
+
+    const result = await runCommand(registry, 'expo-warm', {}, context)
+
+    expect(result).toMatchObject({
+      ok: true,
+      data: { app: { name: 'Probe app', sdkVersion: '58.0.0' } },
+    })
+  })
+
   it('gives no_server when nothing answers on the port', async () => {
     const { context } = contextWith({ '/status': refused() })
 
