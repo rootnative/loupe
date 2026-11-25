@@ -160,6 +160,7 @@ Each finding gives the element and its numbers in dp.
 | `background` | Send the app in front to the background. With `--for`, bring it back after that time. |
 | `foreground` | Bring an app back to the front, as a person does from Recents. |
 | `expo-open` | Open the app in Expo Go at a route, close Expo Go's onboarding sheet and developer menu, and wait until the app shows. |
+| `expo-reload` | Stop Expo Go and open the app again, so its JavaScript starts again. Keep the route when the app has the probe. |
 | `expo-warm` | Ask Metro (`npx expo start`) for the app and its bundle, so that the first open in Expo Go is fast. Give the SHA-256 of the bundle. |
 | `version` | Print the loupe version and the host it runs on. |
 

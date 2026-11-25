@@ -41,6 +41,11 @@ export async function readExpoGoVersion(
   return /versionName=(\S+)/.exec(dump)?.[1]
 }
 
+/** Stops Expo Go and the app in it, so the next open starts a new process. */
+export async function forceStopExpoGo(target: AndroidTarget): Promise<void> {
+  await target.adb.run(['shell', 'am', 'force-stop', EXPO_GO])
+}
+
 /** Gives the port of Metro on this machine to the device: `adb reverse`. */
 export async function reverseAndroid(
   target: AndroidTarget,
@@ -85,6 +90,16 @@ async function readExpoGo(
     }
     throw error
   }
+}
+
+/**
+ * The route that the app's probe shows now. Undefined with no probe, with
+ * Expo Go not in front, and while the screen doesn't keep still.
+ */
+export async function probeRouteInExpoGo(
+  target: AndroidTarget,
+): Promise<string | undefined> {
+  return (await readExpoGo(target))?.probe?.report?.route
 }
 
 /**

@@ -401,6 +401,7 @@ async function checkProbeApp(metro) {
   const ltr = saveLtrScreens()
   checkTheme()
   await checkAppState()
+  checkExpoReload()
   await checkSheets()
   return ltr
 }
@@ -1012,6 +1013,28 @@ async function checkAppState() {
     `background --for 1500: the probe app is back in the same run (${away.data?.back?.way ?? away.error?.code}; ${before.run}, ${before.states} → ${after.run}, ${after.states}; ${after.links})`,
   )
   if (!away.ok) keepScreen('background-expo-go.png')
+}
+
+/**
+ * `expo-reload` with no route, on /appstate: the probe app starts again in
+ * a new process (a cold start), with a new run, on the same route.
+ */
+function checkExpoReload() {
+  const before = appState()
+  const reloaded = loupe('expo-reload', '--port', String(PORT))
+  loupe('wait', '--id', 'run', '--app', EXPO_GO)
+  const after = appState()
+  check(
+    reloaded.ok &&
+      reloaded.data.route === '/appstate' &&
+      reloaded.data.launchState === 'cold' &&
+      reloaded.data.warnings.length === 0 &&
+      before.run !== undefined &&
+      after.run !== undefined &&
+      after.run !== before.run,
+    `expo-reload: the probe app again on ${reloaded.data?.route ?? reloaded.error?.code} after ${reloaded.data?.ms} ms (${reloaded.data?.launchState}; opened ${reloaded.data?.opens} times; ${before.run} → ${after.run})`,
+  )
+  if (!reloaded.ok) keepScreen('expo-reload.png')
 }
 
 /** The status lines of the probe app on /sheets. */

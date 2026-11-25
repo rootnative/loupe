@@ -47,6 +47,9 @@ schema, so this skill doesn't repeat them. loupe works on Android 11
    `sha256` with the one before the edit. The same hash means that Metro
    didn't see the edit. Ask the user to restart Metro with
    `npx expo start --clear`.
+4. To start the app again from a clean state, run `expo-reload`. It stops
+   Expo Go and opens the app again, on the route that the probe shows.
+   With no probe, it opens the root: give `route` for another screen.
 
 ## Units
 
