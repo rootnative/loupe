@@ -1,6 +1,6 @@
 {
   "name": "@rootnative/loupe-probe",
-  "version": "0.0.0-alpha.1",
+  "version": "0.0.0-alpha.2",
   "description": "The in-app helper of loupe by Root Native: it reports the safe-area insets, the window size and the layout direction of your app to loupe, in development only.",
   "license": "MIT",
   "author": "Root Native",

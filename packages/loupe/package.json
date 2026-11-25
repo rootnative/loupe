@@ -1,6 +1,6 @@
 {
   "name": "@rootnative/loupe",
-  "version": "0.0.0-alpha.1",
+  "version": "0.0.0-alpha.2",
   "description": "loupe by Root Native: layout checks for iOS and Android, built for AI agents. Drive simulators and emulators, and measure every screen to the point.",
   "license": "MIT",
   "author": "Root Native",
