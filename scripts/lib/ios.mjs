@@ -5,10 +5,14 @@
 
 import { spawn, spawnSync } from 'node:child_process'
 import { once } from 'node:events'
-import { mkdirSync, openSync, writeFileSync } from 'node:fs'
+import { mkdirSync, mkdtempSync, openSync, writeFileSync } from 'node:fs'
 import { connect } from 'node:net'
+import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { setTimeout as sleep } from 'node:timers/promises'
+import { probeAppSdk } from './expo-go.mjs'
+
+export const EXPO_GO_IOS = 'host.exp.Exponent'
 
 // A tree or a screenshot in base64 passes 1 MB, the default of spawnSync.
 const MAX_BUFFER = 64 * 1024 * 1024
@@ -58,8 +62,63 @@ export function iosRuntime(list, version) {
   )
 }
 
+/**
+ * Installs Expo Go for the probe app's SDK on the simulator `udid`, from the
+ * versions list that the Expo CLI reads too. The archive holds the files of
+ * the app, not its folder. The output of simctl goes to `dir`. Gives the
+ * SDK, the URL, Expo Go's version, its CPU slices and the time in ms.
+ */
+export async function installExpoGoIos(udid, dir) {
+  const start = Date.now()
+  const sdk = probeAppSdk()
+  const list = await fetch('https://api.expo.dev/v2/versions/latest')
+  const url = (await list.json()).data?.sdkVersions?.[sdk]?.iosClientUrl
+  if (!url) {
+    throw new Error(`The Expo versions list has no iOS Expo Go for SDK ${sdk}.`)
+  }
+  const download = await fetch(url)
+  if (!download.ok) {
+    throw new Error(`Expo Go didn't download: HTTP ${download.status}.`)
+  }
+  const folder = mkdtempSync(path.join(tmpdir(), 'expo-go-ios-'))
+  const archive = path.join(folder, 'expo-go.tar.gz')
+  writeFileSync(archive, Buffer.from(await download.arrayBuffer()))
+  const app = path.join(folder, 'Exponent.app')
+  mkdirSync(app)
+  const unpacked = spawnSync('tar', ['-xzf', archive, '-C', app], {
+    encoding: 'utf8',
+  })
+  if (unpacked.status !== 0) {
+    throw new Error(`Expo Go didn't unpack: ${unpacked.stderr}`)
+  }
+
+  const plist = path.join(app, 'Info.plist')
+  const field = (key) =>
+    toolText('plutil', ['-extract', key, 'raw', plist]).trim()
+  const archs = toolText('lipo', [
+    '-archs',
+    path.join(app, field('CFBundleExecutable')),
+  ]).trim()
+  const install = simctl(
+    path.join(dir, 'install.txt'),
+    ['install', udid, app],
+    300_000,
+  )
+  if (install.status !== 0) {
+    throw new Error("Expo Go didn't install. See install.txt.")
+  }
+  return {
+    sdk,
+    url,
+    bundleId: field('CFBundleIdentifier'),
+    version: field('CFBundleShortVersionString'),
+    archs,
+    ms: Date.now() - start,
+  }
+}
+
 /** Connects to the runner, or gives undefined when nothing listens. */
-function tryConnect(port) {
+export function connectRunner(port) {
   return new Promise((resolve) => {
     const socket = connect({ host: '127.0.0.1', port })
     socket.once('connect', () => resolve(clientOf(socket)))
@@ -169,7 +228,7 @@ export async function startRunner({
         xcodebuild,
       }
     }
-    const client = await tryConnect(port)
+    const client = await connectRunner(port)
     if (client) {
       const ping = await client
         .request({ cmd: 'ping' }, 30_000)

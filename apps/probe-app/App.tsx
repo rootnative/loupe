@@ -14,6 +14,7 @@ import {
 } from 'react-native-safe-area-context'
 import { OverlayScreen } from './overlay'
 import { PatternScreen, patternOf } from './patterns'
+import { ProbeChannelsScreen } from './probe-channels'
 import { ScrollScreen, scrollVariantOf } from './scroll'
 import { SheetsScreen } from './sheets'
 import { SlopScreen } from './slop'
@@ -76,6 +77,7 @@ export default function App() {
   if (route === '/sheets') screen = <SheetsScreen />
   if (route === '/overlay') screen = <OverlayScreen />
   if (route === '/slop') screen = <SlopScreen />
+  if (route === '/probe-channels') screen = <ProbeChannelsScreen />
   return (
     <SafeAreaProvider>
       {screen}

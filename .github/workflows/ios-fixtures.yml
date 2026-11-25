@@ -5,9 +5,16 @@ name: iOS fixtures
 # setups loupe must support, and records what each way gives. Each job
 # builds the runner with Xcode 16.4 and with Xcode 26.3, and runs each build
 # with its own Xcode, so the round shows if a build from one Xcode runs on
-# another. Run it by hand. Each job uploads its recording and its build.
+# another. Then it opens the probe app in Expo Go and drives it both ways.
+# With build-only, it stops after each build started once. Run it by hand.
+# Each job uploads its recording and its build.
 on:
   workflow_dispatch:
+    inputs:
+      build-only:
+        description: 'Only build each way, and start each runner build once'
+        type: boolean
+        default: false
 
 # The token only reads the repository.
 permissions:
@@ -17,7 +24,7 @@ jobs:
   record:
     name: Record (${{ matrix.name }})
     runs-on: ${{ matrix.runner }}
-    timeout-minutes: 60
+    timeout-minutes: 90
     strategy:
       fail-fast: false
       matrix:
@@ -45,10 +52,24 @@ jobs:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
+      - name: Setup pnpm
+        if: ${{ !inputs.build-only }}
+        uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6.0.10
+
       - name: Setup Node.js
         uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version-file: .nvmrc
+          cache: ${{ !inputs.build-only && 'pnpm' || '' }}
+
+      - name: Install dependencies
+        if: ${{ !inputs.build-only }}
+        run: pnpm install --frozen-lockfile
+
+      # Metro loads the probe from its build output.
+      - name: Build
+        if: ${{ !inputs.build-only }}
+        run: pnpm run build
 
       # Pinned by version and SHA-256. The zip holds a universal binary.
       - name: Install XcodeGen
@@ -94,7 +115,7 @@ jobs:
           done
 
       - name: Record
-        run: node scripts/record-ios.mjs "$RUNNER_TEMP/ios/${{ matrix.name }}" --ios "${{ matrix.ios }}" --device "${{ matrix.device }}" --build "$RUNNER_TEMP/build"
+        run: node scripts/record-ios.mjs "$RUNNER_TEMP/ios/${{ matrix.name }}" --ios "${{ matrix.ios }}" --device "${{ matrix.device }}" --xcode "${{ matrix.xcode }}" --build "$RUNNER_TEMP/build" ${{ inputs.build-only && '--build-only' || '' }}
 
       # A partial recording still helps, so it uploads after a failure too.
       - name: Upload the recording

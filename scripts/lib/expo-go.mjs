@@ -16,13 +16,18 @@ export const PROBE_APP = path.resolve('apps/probe-app')
 
 const appRequire = () => createRequire(path.join(PROBE_APP, 'package.json'))
 
+/** The Expo SDK of the probe app, for example `58.0.0`. */
+export function probeAppSdk() {
+  return `${appRequire()('expo/package.json').version.split('.')[0]}.0.0`
+}
+
 /**
  * Installs Expo Go for the SDK of the probe app, from the versions list that
  * the Expo CLI reads too. `-g` grants the permissions, so no permission
  * dialog covers the app. Gives the SDK version.
  */
 export async function installExpoGo(adb) {
-  const sdk = `${appRequire()('expo/package.json').version.split('.')[0]}.0.0`
+  const sdk = probeAppSdk()
   const list = await fetch('https://api.expo.dev/v2/versions/latest')
   const url = (await list.json()).data?.sdkVersions?.[sdk]?.androidClientUrl
   if (!url) {
@@ -83,10 +88,10 @@ export async function stopMetro(metro) {
 }
 
 /**
- * Waits until Metro runs, then fetches the bundle once: a cold bundle can
- * take longer than Expo Go waits. Gives the time in ms.
+ * Waits until Metro runs, then fetches the bundle of `platform` once: a cold
+ * bundle can take longer than Expo Go waits. Gives the time in ms.
  */
-export async function warmMetro(metro) {
+export async function warmMetro(metro, platform = 'android') {
   const start = Date.now()
   const base = `http://127.0.0.1:${PORT}`
   for (;;) {
@@ -105,7 +110,7 @@ export async function warmMetro(metro) {
 
   const manifest = await fetch(base, {
     headers: {
-      'expo-platform': 'android',
+      'expo-platform': platform,
       accept: 'application/expo+json,application/json',
     },
   }).then((response) => response.json())

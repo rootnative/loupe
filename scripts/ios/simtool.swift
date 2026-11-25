@@ -215,6 +215,12 @@ func screenPoint(_ x: Double, _ y: Double, _ size: CGSize, _ screen: CGRect) thr
   return point
 }
 
+/// Where the pointer is, in the same coordinates as an event.
+func pointer() -> [String: Double] {
+  let location = CGEvent(source: nil)?.location ?? .zero
+  return ["x": Double(location.x), "y": Double(location.y)]
+}
+
 // The Simulator loses the last event when the process exits right after it.
 func settleEvents() { usleep(200_000) }
 
@@ -279,11 +285,15 @@ func run(_ command: String, _ args: Arguments) throws -> [String: Any] {
     let device = try screen(of: try window(app, args.options["title"]))
     let point = try screenPoint(try args.number(0), try args.number(1), try args.size(), device.frame)
     try requireFrontmost(args.via)
+    let before = pointer()
     post(try mouse(.leftMouseDown, point), via: args.via, pid: app.processIdentifier)
     usleep(60_000)
     post(try mouse(.leftMouseUp, point), via: args.via, pid: app.processIdentifier)
     settleEvents()
-    return ["screenPoint": ["x": Double(point.x), "y": Double(point.y)], "via": args.via, "frontmost": frontmost()]
+    return [
+      "screenPoint": ["x": Double(point.x), "y": Double(point.y)], "via": args.via,
+      "frontmost": frontmost(), "pointer": ["before": before, "after": pointer()],
+    ]
 
   case "drag":
     let app = try simulator()
@@ -294,6 +304,7 @@ func run(_ command: String, _ args: Arguments) throws -> [String: Any] {
     let steps = max(1, Int(try args.option("steps", 20)))
     let pause = useconds_t(try args.option("ms", 300) * 1000 / Double(steps))
     try requireFrontmost(args.via)
+    let before = pointer()
     post(try mouse(.leftMouseDown, from), via: args.via, pid: app.processIdentifier)
     for step in 1...steps {
       let share = CGFloat(step) / CGFloat(steps)
@@ -304,7 +315,9 @@ func run(_ command: String, _ args: Arguments) throws -> [String: Any] {
     usleep(useconds_t(try args.option("hold-end", 0) * 1000))
     post(try mouse(.leftMouseUp, to), via: args.via, pid: app.processIdentifier)
     settleEvents()
-    return ["via": args.via, "frontmost": frontmost()]
+    return [
+      "via": args.via, "frontmost": frontmost(), "pointer": ["before": before, "after": pointer()],
+    ]
 
   case "key":
     let app = try simulator()
