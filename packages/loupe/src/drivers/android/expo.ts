@@ -22,6 +22,11 @@ import { waitStillAndroid } from './wait'
 // and a second open 20 s later showed the app (round 10, API 35).
 const OPEN_AGAIN_MS = 20_000
 const READ_INTERVAL = 500
+// On API 36 the start after a force-stop was once warm, and Expo Go lost
+// the link until a second open (CI 45596256902). So the open waits until
+// the stopped process is gone.
+const STOP_LIMIT = 2000
+const STOP_INTERVAL = 100
 
 /** The version name of Expo Go on the device. With no Expo Go: `no_handler`. */
 export async function readExpoGoVersion(
@@ -41,9 +46,26 @@ export async function readExpoGoVersion(
   return /versionName=(\S+)/.exec(dump)?.[1]
 }
 
-/** Stops Expo Go and the app in it, so the next open starts a new process. */
-export async function forceStopExpoGo(target: AndroidTarget): Promise<void> {
+/**
+ * Stops Expo Go and the app in it, so the next open starts a new process.
+ * Then it waits until `pidof` finds no process of Expo Go, for `limit` ms
+ * at most.
+ */
+export async function forceStopExpoGo(
+  target: AndroidTarget,
+  limit = STOP_LIMIT,
+): Promise<void> {
   await target.adb.run(['shell', 'am', 'force-stop', EXPO_GO])
+  const start = Date.now()
+  while ((await expoGoRuns(target)) && Date.now() - start < limit) {
+    await sleep(STOP_INTERVAL)
+  }
+}
+
+/** True while `pidof` gives a process of Expo Go. It exits 1 with none. */
+async function expoGoRuns(target: AndroidTarget): Promise<boolean> {
+  const { stdout } = await target.adb.result(['shell', 'pidof', EXPO_GO])
+  return /\d/.test(stdout.toString('utf8'))
 }
 
 /** Gives the port of Metro on this machine to the device: `adb reverse`. */
@@ -58,6 +80,8 @@ export interface ShownInExpoGo {
   opened: OpenedUrl
   /** How many times loupe opened the link. */
   opens: number
+  /** What the last read saw before each time that loupe opened it again. */
+  reopens: string[]
   /** The Expo Go sheets that loupe closed, in order. */
   closed: Exclude<ExpoGoScreen, 'loading'>[]
   /** From the first open until the app showed. */
@@ -120,6 +144,7 @@ export async function showInExpoGo(
   const opened = await openUrlAndroid(target, link, EXPO_GO)
   let opens = 1
   let openedAt = start
+  const reopens: string[] = []
   const closed: ShownInExpoGo['closed'] = []
   let last = 'nothing yet'
 
@@ -167,7 +192,14 @@ export async function showInExpoGo(
         const inDirection =
           !probe || direction === undefined || probe.direction === direction
         if (onRoute && inDirection) {
-          return { opened, opens, closed, ms: Date.now() - start, probe }
+          return {
+            opened,
+            opens,
+            reopens,
+            closed,
+            ms: Date.now() - start,
+            probe,
+          }
         }
         last = onRoute
           ? `the app in ${probe?.direction}`
@@ -180,6 +212,7 @@ export async function showInExpoGo(
     if (stuck && Date.now() - openedAt >= openAgain) {
       await openUrlAndroid(target, link, EXPO_GO)
       opens += 1
+      reopens.push(last)
       openedAt = Date.now()
     }
     await sleep(READ_INTERVAL)

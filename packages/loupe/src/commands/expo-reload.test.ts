@@ -48,10 +48,12 @@ describe('expo-reload', () => {
       expect(dumpsOf(calls)).toHaveLength(2)
       const reverse = indexOf(calls, 'reverse tcp:8081 tcp:8081')
       const stop = indexOf(calls, 'am force-stop host.exp.exponent')
+      const gone = indexOf(calls, 'pidof host.exp.exponent')
       const open = indexOf(calls, 'am start')
       expect(reverse).toBeGreaterThan(-1)
       expect(stop).toBeGreaterThan(reverse)
-      expect(open).toBeGreaterThan(stop)
+      expect(gone).toBeGreaterThan(stop)
+      expect(open).toBeGreaterThan(gone)
     },
   )
 
@@ -116,7 +118,7 @@ describe('expo-reload', () => {
       ok: true,
       data: {
         launchState: 'warm',
-        warnings: [expect.stringContaining("Expo Go didn't stop")],
+        warnings: [expect.stringContaining('Expo Go can still have run')],
       },
     })
   })

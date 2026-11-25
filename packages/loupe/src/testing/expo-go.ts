@@ -32,8 +32,8 @@ export function focusOn(level: 30 | 36, title: string): FakeRun {
 
 /**
  * An emulator with Expo Go, and the probe app's Metro. Each `input` call and
- * each force-stop succeeds. Each `am start` gives `start`: a warm start by
- * default.
+ * each force-stop succeeds, and `pidof` finds no Expo Go after it. Each `am
+ * start` gives `start`: a warm start by default.
  */
 export function expoEmulator(
   level: 30 | 36,
@@ -58,6 +58,7 @@ export function expoEmulator(
     ),
     [`${ADB} exec-out uiautomator dump /dev/tty`]: dumps,
     [`${ADB} exec-out screencap -p`]: { stdout: pngHeader(1080, 2400) },
+    [`${ADB} shell pidof host.exp.exponent`]: { code: 1 },
     ...runs,
   })
   const { context, calls } = fakeContext((call) => {

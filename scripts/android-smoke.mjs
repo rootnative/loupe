@@ -311,7 +311,7 @@ async function checkProbeApp(metro) {
   )
   check(
     opened.ok && opened.data.probe && opened.data.route === '/',
-    `expo-open: the probe app on ${opened.data?.route ?? opened.error?.code} after ${opened.data?.ms} ms; closed ${opened.data?.closed.join(', ') || 'nothing'}; opened ${opened.data?.opens} times; Expo Go ${opened.data?.expoGo}`,
+    `expo-open: the probe app on ${opened.data?.route ?? opened.error?.code} after ${opened.data?.ms} ms; closed ${opened.data?.closed.join(', ') || 'nothing'}; ${opensOf(opened)}; Expo Go ${opened.data?.expoGo}`,
   )
   let found = await waitForProbe(60_000)
   if (found.screen.data?.probe) {
@@ -913,9 +913,10 @@ function checkGateRtl(files) {
       off.ok &&
         off.data.changed &&
         off.data.direction === 'ltr' &&
+        off.data.warnings.length === 0 &&
         readFileSync(appJsonFile, 'utf8') === appJson &&
         !existsSync(record),
-      `expo-rtl off: app.json as before and no record; the probe app in ${off.data?.direction ?? off.error?.code} after ${off.data?.ms} ms (${off.data?.launchState}; opened ${off.data?.opens} times)`,
+      `expo-rtl off: app.json as before and no record; the probe app in ${off.data?.direction ?? off.error?.code} after ${off.data?.ms} ms (${off.data?.launchState}; ${opensOf(off)})`,
     )
     if (!off.ok) keepScreen('gate-ltr-timeout.png')
   }
@@ -936,8 +937,11 @@ function checkGateRtlScreens(files, record) {
   )
   const shown = on.ok && on.data.route === route && on.data.direction === 'rtl'
   check(
-    shown && on.data.changed && existsSync(record),
-    `expo-rtl on: the probe app in ${on.data?.direction ?? on.error?.code} on ${on.data?.route} after ${on.data?.ms} ms (${on.data?.launchState}; opened ${on.data?.opens} times)`,
+    shown &&
+      on.data.changed &&
+      on.data.warnings.length === 0 &&
+      existsSync(record),
+    `expo-rtl on: the probe app in ${on.data?.direction ?? on.error?.code} on ${on.data?.route} after ${on.data?.ms} ms (${on.data?.launchState}; ${opensOf(on)})`,
   )
   if (!shown) {
     keepScreen('gate-rtl-timeout.png')
@@ -991,6 +995,19 @@ function checkTheme() {
   if (!dark.ok || !light.ok) keepScreen('theme.png')
 }
 
+/**
+ * How many times an Expo command opened the link, what it saw before each
+ * new open, and its warnings, for the log.
+ */
+function opensOf(result) {
+  const { opens, reopens = [], warnings = [] } = result.data ?? {}
+  return [
+    `opened ${opens} times`,
+    ...reopens.map((seen) => `again after ${seen}`),
+    ...warnings.map((warning) => `warning: ${warning}`),
+  ].join('; ')
+}
+
 /** What the probe app shows on /appstate: its run, AppStates and links. */
 function appState() {
   const nodes = loupe('ui', '--app', EXPO_GO).data?.nodes ?? []
@@ -1041,7 +1058,7 @@ function checkExpoReload() {
       before.run !== undefined &&
       after.run !== undefined &&
       after.run !== before.run,
-    `expo-reload: the probe app again on ${reloaded.data?.route ?? reloaded.error?.code} after ${reloaded.data?.ms} ms (${reloaded.data?.launchState}; opened ${reloaded.data?.opens} times; ${before.run} → ${after.run})`,
+    `expo-reload: the probe app again on ${reloaded.data?.route ?? reloaded.error?.code} after ${reloaded.data?.ms} ms (${reloaded.data?.launchState}; ${opensOf(reloaded)}; ${before.run} → ${after.run})`,
   )
   if (!reloaded.ok) keepScreen('expo-reload.png')
 }

@@ -18,6 +18,7 @@ import { METRO_MANIFEST, metroRoutes } from '../testing/metro'
 import { registry } from './index'
 
 const COLD = recorded('api-30/extra/am-start-https.txt')
+const WARM = recorded('api-36/extra/am-start-https.txt')
 const APP_JSON = `${JSON.stringify(
   {
     expo: {
@@ -65,8 +66,13 @@ function manifestOf(root: string, live: boolean) {
 }
 
 /** An API 36 emulator, and the Metro of the project in `root`. */
-function emulator(root: string, dumps: readonly FakeRun[], live = true) {
-  const { context, calls } = expoEmulator(36, dumps, {}, COLD)
+function emulator(
+  root: string,
+  dumps: readonly FakeRun[],
+  live = true,
+  start = COLD,
+) {
+  const { context, calls } = expoEmulator(36, dumps, {}, start)
   const { fetch } = fakeFetch({
     ...metroRoutes(),
     '/': manifestOf(root, live),
@@ -137,6 +143,23 @@ describe('expo-rtl', () => {
     })
     expect(readFileSync(path.join(root, 'app.json'), 'utf8')).toBe(APP_JSON)
     expect(existsSync(path.join(root, RECORD_PATH))).toBe(false)
+  })
+
+  it("doesn't warn of a warm start when the probe shows the new direction", async () => {
+    const root = project()
+    const { context } = emulator(root, [ltr, rtl], true, WARM)
+
+    const result = await runCommand(
+      registry,
+      'expo-rtl',
+      { rtl: 'on' },
+      context,
+    )
+
+    expect(result).toMatchObject({
+      ok: true,
+      data: { launchState: 'warm', direction: 'rtl', warnings: [] },
+    })
   })
 
   it('puts app.json back when the manifest never gets the change', async () => {

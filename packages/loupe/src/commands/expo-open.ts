@@ -52,6 +52,11 @@ export const shownSchema = z.object({
     .describe(
       'How many times loupe opened the link. Expo Go can lose a link while it starts.',
     ),
+  reopens: z
+    .array(z.string())
+    .describe(
+      'What the last read saw before each time that loupe opened the link again.',
+    ),
   closed: z
     .array(z.enum(['onboarding', 'dev-menu']))
     .describe(
@@ -142,9 +147,17 @@ export async function showApp(
   context.progress?.({ progress: STEPS, total: STEPS })
 
   const { launchState } = shown.opened
-  if (reload && launchState !== undefined && launchState !== 'cold') {
+  // A probe in the wanted direction shows the new config, so the app's
+  // JavaScript started again, whatever the launch state.
+  const proved = direction !== undefined && shown.probe?.direction === direction
+  if (
+    reload &&
+    launchState !== undefined &&
+    launchState !== 'cold' &&
+    !proved
+  ) {
     warnings.push(
-      `Android gave the launch state ${launchState}, not cold, so Expo Go didn't stop. The app can still run its old JavaScript.`,
+      `Android gave the launch state ${launchState} after the force-stop, not cold, so Expo Go can still have run. Check that the app shows your change.`,
     )
   }
   return {
@@ -153,6 +166,7 @@ export async function showApp(
     expoGo,
     launchState,
     opens: shown.opens,
+    reopens: shown.reopens,
     closed: shown.closed,
     ms: Date.now() - start,
     route: shown.probe?.route,
@@ -165,7 +179,7 @@ export async function showApp(
 /** The text of a `Shown`, after `lead`: what loupe did. */
 export function describeShown(
   lead: string,
-  { app, opens, closed, ms, route, direction, warnings }: Shown,
+  { app, opens, reopens, closed, ms, route, direction, warnings }: Shown,
 ): string {
   return [
     [
@@ -174,7 +188,9 @@ export function describeShown(
       ...(direction ? [` in ${direction.toUpperCase()}`] : []),
       ` after ${ms} ms`,
       ...(closed.length ? [`; closed ${closed.join(', ')}`] : []),
-      ...(opens > 1 ? [`; opened ${opens} times`] : []),
+      ...(opens > 1
+        ? [`; opened ${opens} times, again after: ${reopens.join('; ')}`]
+        : []),
       '.',
     ].join(''),
     ...warnings.map((warning) => `Warning: ${warning}`),
