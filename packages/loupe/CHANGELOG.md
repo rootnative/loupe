@@ -4,6 +4,10 @@ All notable changes to `@rootnative/loupe` are in this file. The format follows 
 
 ## [Unreleased]
 
+## [0.0.0-alpha.2] - 2026-11-25
+
+The Expo helpers: loupe warms, opens, and restarts your app in Expo Go, and switches it to RTL and back.
+
 ### Added
 
 - **`expo-warm`**: it asks Metro (`npx expo start`) for the manifest of your app and its launch bundle, as Expo Go does on its first open. Then the first open doesn't wait for a cold bundle. It gives the SDK version and the folder of the app, and the time, the size, and the SHA-256 of the bundle: after an edit, the same hash means that Metro didn't see the edit. It asks Metro on 127.0.0.1 only.
@@ -36,5 +40,6 @@ loupe drives an Android emulator or device, measures each screen of your app in 
 - **The device:** `devices`, `open-url`, `rotate`, `theme`, `background`, `foreground`, and `dismiss`. `dismiss` closes a system sheet, a dialog, the keyboard, or an overlay of your app.
 - **The probe:** when your app renders `<LoupeProbe />` from `@rootnative/loupe-probe`, `insets` and the rules use the app's own safe area.
 
-[unreleased]: https://github.com/rootnative/loupe/compare/loupe@0.0.0-alpha.1...HEAD
+[unreleased]: https://github.com/rootnative/loupe/compare/loupe@0.0.0-alpha.2...HEAD
+[0.0.0-alpha.2]: https://github.com/rootnative/loupe/releases/tag/loupe@0.0.0-alpha.2
 [0.0.0-alpha.1]: https://github.com/rootnative/loupe/releases/tag/loupe@0.0.0-alpha.1
