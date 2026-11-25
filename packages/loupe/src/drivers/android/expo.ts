@@ -90,19 +90,23 @@ interface ShowOptions {
 /** The tree of Expo Go, or undefined while uiautomator can't read it. */
 async function readExpoGo(
   target: AndroidTarget,
-): Promise<AndroidUi | undefined> {
+): Promise<AndroidUi | 'not_idle' | undefined> {
   try {
     return await readAndroidUi(target, EXPO_GO)
   } catch (error) {
-    if (
-      error instanceof LoupeError &&
-      (error.code === 'not_idle' || error.code === 'app_not_in_front')
-    ) {
+    if (error instanceof LoupeError && error.code === 'not_idle') {
+      return 'not_idle'
+    }
+    if (error instanceof LoupeError && error.code === 'app_not_in_front') {
       return undefined
     }
     throw error
   }
 }
+
+/** The tree of a read, or none when uiautomator couldn't read it. */
+const treeOf = (read: AndroidUi | 'not_idle' | undefined) =>
+  typeof read === 'object' ? read : undefined
 
 /**
  * The route that the app's probe shows now. Undefined with no probe, with
@@ -111,7 +115,7 @@ async function readExpoGo(
 export async function probeRouteInExpoGo(
   target: AndroidTarget,
 ): Promise<string | undefined> {
-  return (await readExpoGo(target))?.probe?.report?.route
+  return treeOf(await readExpoGo(target))?.probe?.report?.route
 }
 
 /**
@@ -134,6 +138,8 @@ export async function showInExpoGo(
   const reopens: string[] = []
   const closed: ShownInExpoGo['closed'] = []
   let last = 'nothing yet'
+  // True while the last read found Expo Go's screen moving all the time.
+  let notIdle = false
 
   while (Date.now() - start < timeout) {
     throwIfCancelled(target.signal)
@@ -143,6 +149,7 @@ export async function showInExpoGo(
     let appShows = false
 
     if (!inExperience) {
+      notIdle = false
       // Throws `app_not_in_front` with the advice to run `loupe dismiss`.
       if (notRespondingPackage(focus) !== undefined) {
         await readInFront(target, EXPO_GO)
@@ -153,7 +160,9 @@ export async function showInExpoGo(
           ? 'another window in front'
           : `${focus ?? 'no window'} in front`
     } else {
-      const ui = await readExpoGo(target)
+      const read = await readExpoGo(target)
+      notIdle = read === 'not_idle'
+      const ui = treeOf(read)
       const screen = ui && expoGoScreenOf(ui.nodes)
       if (!ui) {
         last = "Expo Go's screen, which didn't keep still for uiautomator"
@@ -213,6 +222,12 @@ export async function showInExpoGo(
     await sleep(READ_INTERVAL)
   }
 
+  if (notIdle) {
+    throw new LoupeError(
+      'not_idle',
+      `Expo Go shows a screen after loupe opened ${link}, but it didn't keep still in ${Math.round(timeout / 1000)} s, so uiautomator can't read it. An animation that never stops, or a long one, can cause this. Take a screenshot to see the screen, wait until the animation ends, or open a route with no such animation.`,
+    )
+  }
   throw new LoupeError(
     'timeout',
     `Expo Go didn't show the app in ${Math.round(timeout / 1000)} s after loupe opened ${link} (${opens === 1 ? 'once' : `${opens} times`}). The last read: ${last}.`,
@@ -229,7 +244,7 @@ async function stillAppInExpoGo(
   timeout: number,
 ): Promise<boolean> {
   await waitStillInExpoGo(target, timeout)
-  const again = await readExpoGo(target)
+  const again = treeOf(await readExpoGo(target))
   return (
     again !== undefined &&
     expoGoScreenOf(again.nodes) === undefined &&

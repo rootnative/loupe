@@ -43,7 +43,10 @@ schema, so this skill doesn't repeat them. loupe works on Android 11
    warms the bundle, closes Expo Go's onboarding sheet and developer menu,
    and waits until the app shows: on the route when the app has the probe,
    else until the screen has text, a label or a touch and keeps still.
-   Then give `app` `host.exp.exponent` in each call.
+   Then give `app` `host.exp.exponent` in each call. An animation that
+   never stops, or a long one, hides a screen from loupe: `expo-open`
+   then gives `not_idle`. A link to the root can start the animation
+   again, so open another route.
 3. After an edit of the app's code, run `expo-warm`, and compare its
    `sha256` with the one before the edit. The same hash means that Metro
    didn't see the edit. Ask the user to restart Metro with
@@ -51,6 +54,8 @@ schema, so this skill doesn't repeat them. loupe works on Android 11
 4. To start the app again from a clean state, run `expo-reload`. It stops
    Expo Go and opens the app again, on the route that the probe shows.
    With no probe, it opens the root: give `route` for another screen.
+   Run it also after a Metro restart or a new package: until then, Expo Go
+   keeps the old JavaScript.
 5. To see the app in RTL, run `expo-rtl on`. It writes `supportsRTL` and
    `forcesRTL` in the app's app.json, keeps the file as it was, and opens
    the app again in RTL. When you're done, run `expo-rtl off`: it puts
@@ -155,7 +160,7 @@ to do. The codes:
 | `tool_missing` | loupe can't find adb. Ask the user to set `ANDROID_HOME`. |
 | `tool_failed` | adb or Metro failed. Read the message: for a bundle, it gives Metro's error. |
 | `app_not_in_front` | Another app or a dialog is in front. Run `dismiss` for a dialog or a sheet, or `foreground` for the app. |
-| `not_idle` | The screen didn't keep still long enough to read it. Run `wait` with `still`, then try again. |
+| `not_idle` | The screen didn't keep still long enough to read it. Run `wait` with `still`, then try again. An animation that never stops, or a long one, keeps a screen from loupe: take a screenshot, wait until it ends, or open another route. |
 | `element_not_found` | Run `ui`, find the element, and give its exact text, label, or id. |
 | `element_ambiguous` | More than one element matches. Give its `id`. |
 | `orientation_locked` | The app sets its own orientation. Check the orientations it allows. |

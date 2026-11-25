@@ -238,4 +238,25 @@ describe('expo-open', () => {
       },
     })
   })
+
+  it('gives not_idle with advice when the screen of the app never keeps still', async () => {
+    const { context } = emulator(36, [
+      { stdout: 'ERROR: could not get idle state.\n' },
+    ])
+
+    const result = await runCommand(
+      registry,
+      'expo-open',
+      { timeout: 1000 },
+      context,
+    )
+
+    expect(result).toMatchObject({
+      ok: false,
+      error: {
+        code: 'not_idle',
+        message: expect.stringContaining('wait until the animation ends'),
+      },
+    })
+  })
 })
