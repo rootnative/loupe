@@ -9,7 +9,6 @@ import {
   readExpoGoVersion,
   reverseAndroid,
   showInExpoGo,
-  waitStillInExpoGo,
 } from '../drivers/android/expo'
 import { expoLink, sdkWarning } from '../expo/expo-go'
 import { DEFAULT_PORT, portField, warmExpo } from '../expo/metro'
@@ -74,7 +73,7 @@ export const shownSchema = z.object({
   probe: z
     .boolean()
     .describe(
-      'True when the app has the probe. With no probe, loupe waited until no Expo Go screen showed and the screen kept still.',
+      'True when the app has the probe. With no probe, loupe waited until the screen had text, a label or a touch, kept still, and then still showed no Expo Go screen.',
     ),
   warnings: z.array(z.string()),
 })
@@ -141,9 +140,6 @@ export async function showApp(
     direction,
     timeout,
   })
-  if (!shown.probe) {
-    await waitStillInExpoGo(target, Math.max(0, timeout - (Date.now() - start)))
-  }
   context.progress?.({ progress: STEPS, total: STEPS })
 
   const { launchState } = shown.opened

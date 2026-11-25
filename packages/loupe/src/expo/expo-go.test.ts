@@ -1,6 +1,12 @@
 import { describe, expect, it } from 'vitest'
 import { type UiNode } from '../core/ui'
-import { expoGoScreenOf, expoLink, normalRoute, sdkWarning } from './expo-go'
+import {
+  expoGoScreenOf,
+  expoLink,
+  hasAppContent,
+  normalRoute,
+  sdkWarning,
+} from './expo-go'
 
 const node = (fields: Partial<UiNode>): UiNode => ({
   type: 'android.widget.TextView',
@@ -32,6 +38,41 @@ describe('expoGoScreenOf', () => {
     expect(
       expoGoScreenOf([node({ id: 'host.exp.exponent:id/progressBar' })]),
     ).toBe('loading')
+  })
+})
+
+describe('hasAppContent', () => {
+  const layout = (children: UiNode[]): UiNode =>
+    node({ type: 'android.widget.FrameLayout', children })
+
+  it('finds text, a label or a touch deep in the tree', () => {
+    expect(hasAppContent([layout([layout([node({ text: 'Hi' })])])])).toBe(true)
+    expect(hasAppContent([layout([node({ label: 'Menu' })])])).toBe(true)
+    expect(hasAppContent([layout([node({ clickable: true })])])).toBe(true)
+  })
+
+  it('finds none in layouts and a progress bar', () => {
+    expect(
+      hasAppContent([
+        layout([
+          node({
+            type: 'android.widget.ProgressBar',
+            id: 'host.exp.exponent:id/progressBar',
+          }),
+        ]),
+      ]),
+    ).toBe(false)
+  })
+
+  it("leaves out Expo Go's overlay and an element with no area", () => {
+    expect(
+      hasAppContent([
+        layout([
+          node({ type: 'c23', children: [node({ label: 'Tools' })] }),
+          node({ text: 'Hidden', frame: { x: 0, y: 0, width: 0, height: 0 } }),
+        ]),
+      ]),
+    ).toBe(false)
   })
 })
 

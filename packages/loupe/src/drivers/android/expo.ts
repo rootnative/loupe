@@ -7,6 +7,7 @@ import {
   EXPO_GO,
   type ExpoGoScreen,
   expoGoScreenOf,
+  hasAppContent,
   normalRoute,
 } from '../../expo/expo-go'
 import { type AndroidTarget } from './devices'
@@ -132,8 +133,9 @@ export async function probeRouteInExpoGo(
  * Opens the link in Expo Go and waits until the app shows. On the way it
  * closes Expo Go's onboarding sheet and developer menu, and opens the link
  * again when the app isn't there 20 s after an open. With the probe, the
- * app shows when the probe does, on the route; with no probe, when no Expo
- * Go screen shows and the screen keeps still. An "isn't responding" dialog
+ * app shows when the probe does, on the route. With no probe, it shows when
+ * the screen has text, a label or a touch, keeps still, and a read after
+ * that still finds no Expo Go screen. An "isn't responding" dialog
  * in front gives `app_not_in_front`, which points to `loupe dismiss`.
  */
 export async function showInExpoGo(
@@ -181,16 +183,24 @@ export async function showInExpoGo(
         last = `Expo Go's ${screen === 'onboarding' ? 'onboarding sheet' : 'developer menu'}`
       } else if (screen === 'loading') {
         last = "Expo Go's loading screen"
+      } else if (!ui.probe?.report && !hasAppContent(ui.nodes)) {
+        last = 'a screen with no text, label or touch yet'
+      } else if (!ui.probe?.report) {
+        appShows = true
+        const remaining = Math.max(0, timeout - (Date.now() - start))
+        if (await stillAppInExpoGo(target, remaining)) {
+          return { opened, opens, reopens, closed, ms: Date.now() - start }
+        }
+        last = 'the app with no probe, then another screen'
       } else {
-        const probe = ui.probe?.report
+        const probe = ui.probe.report
         appShows = true
         const onRoute =
-          !probe ||
           route === undefined ||
           probe.route === undefined ||
           normalRoute(probe.route) === normalRoute(route)
         const inDirection =
-          !probe || direction === undefined || probe.direction === direction
+          direction === undefined || probe.direction === direction
         if (onRoute && inDirection) {
           return {
             opened,
@@ -202,8 +212,8 @@ export async function showInExpoGo(
           }
         }
         last = onRoute
-          ? `the app in ${probe?.direction}`
-          : `the app on ${probe?.route}`
+          ? `the app in ${probe.direction}`
+          : `the app on ${probe.route}`
       }
     }
 
@@ -224,8 +234,27 @@ export async function showInExpoGo(
   )
 }
 
-/** With no probe: waits until the screen keeps still, within `timeout`. */
-export async function waitStillInExpoGo(
+/**
+ * With no probe: true when the screen keeps still within `timeout`, and a
+ * read after that still finds the app, not an Expo Go screen. The
+ * onboarding sheet can come a moment after the app (CI 45599663119).
+ */
+async function stillAppInExpoGo(
+  target: AndroidTarget,
+  timeout: number,
+): Promise<boolean> {
+  await waitStillInExpoGo(target, timeout)
+  const again = await readExpoGo(target)
+  return (
+    again !== undefined &&
+    expoGoScreenOf(again.nodes) === undefined &&
+    !again.probe?.report &&
+    hasAppContent(again.nodes)
+  )
+}
+
+/** Waits until the screen keeps still, within `timeout`. */
+async function waitStillInExpoGo(
   target: AndroidTarget,
   timeout: number,
 ): Promise<void> {

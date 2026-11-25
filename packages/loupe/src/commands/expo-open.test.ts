@@ -76,6 +76,48 @@ describe('expo-open', () => {
     expect(result).toMatchObject({ ok: true, data: { closed: [] } })
   })
 
+  it('takes a screen with no text, label or touch for loading', async () => {
+    const blank = dump(36, 'open/shown.ui-tty.txt', (text) =>
+      text
+        .replace(/ text="[^"]*"/g, ' text=""')
+        .replace(/content-desc=("[^"]*"|'[^']*')/g, 'content-desc=""')
+        .replace(/clickable="true"/g, 'clickable="false"'),
+    )
+    const { context } = emulator(36, [
+      blank,
+      dump(36, 'open/onboarding.ui-tty.txt'),
+      dump(36, 'open/dev-menu.ui-tty.txt'),
+      dump(36, 'open/shown.ui-tty.txt'),
+    ])
+
+    const result = await runCommand(registry, 'expo-open', {}, context)
+
+    expect(result).toMatchObject({
+      ok: true,
+      data: {
+        closed: ['onboarding', 'dev-menu'],
+        probe: true,
+        route: '/appstate',
+      },
+    })
+  })
+
+  it('reads again after a still screen with no probe, and closes a sheet that came after it', async () => {
+    const app = dump(36, 'open/shown.ui-tty.txt', (text) =>
+      text.replace(/content-desc='loupe:[^']*'/, 'content-desc=""'),
+    )
+    const onboarding = dump(36, 'open/onboarding.ui-tty.txt')
+    const { context, calls } = emulator(36, [app, onboarding, onboarding, app])
+
+    const result = await runCommand(registry, 'expo-open', {}, context)
+
+    expect(result).toMatchObject({
+      ok: true,
+      data: { closed: ['onboarding'], probe: false },
+    })
+    expect(tapsOf(calls)).toHaveLength(1)
+  }, 15_000)
+
   it('waits until the probe shows the route', async () => {
     const { context, calls } = emulator(36, [
       dump(36, 'open/shown.ui-tty.txt', (text) =>

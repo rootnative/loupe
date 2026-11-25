@@ -42,8 +42,8 @@ schema, so this skill doesn't repeat them. loupe works on Android 11
 2. Open the app with `expo-open` and a route, for example `/settings`. It
    warms the bundle, closes Expo Go's onboarding sheet and developer menu,
    and waits until the app shows: on the route when the app has the probe,
-   else until the screen keeps still. Then give `app` `host.exp.exponent`
-   in each call.
+   else until the screen has text, a label or a touch and keeps still.
+   Then give `app` `host.exp.exponent` in each call.
 3. After an edit of the app's code, run `expo-warm`, and compare its
    `sha256` with the one before the edit. The same hash means that Metro
    didn't see the edit. Ask the user to restart Metro with

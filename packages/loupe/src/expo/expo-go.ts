@@ -51,6 +51,23 @@ export function expoGoScreenOf(
   return undefined
 }
 
+/**
+ * True when the tree has an element that a person can read or use: text, a
+ * label or a touch, with an area. Expo Go's own overlay (the "Tools"
+ * button) sits under a class that isn't `android.*`, and doesn't count.
+ * The loading screen has none, also while it shows no progress bar.
+ */
+export function hasAppContent(nodes: readonly UiNode[]): boolean {
+  return nodes.some(
+    (node) =>
+      node.type.startsWith('android.') &&
+      (((node.text || node.label || node.clickable || node.longClickable) &&
+        node.frame.width > 0 &&
+        node.frame.height > 0) ||
+        hasAppContent(node.children ?? [])),
+  )
+}
+
 /** A route as the probe gives it: `settings/` and `/settings?tab=1` give `/settings`. */
 export function normalRoute(route: string): string {
   const path = route.split(/[?#]/)[0] ?? ''
