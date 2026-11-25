@@ -161,6 +161,7 @@ Each finding gives the element and its numbers in dp.
 | `foreground` | Bring an app back to the front, as a person does from Recents. |
 | `expo-open` | Open the app in Expo Go at a route, close Expo Go's onboarding sheet and developer menu, and wait until the app shows. |
 | `expo-reload` | Stop Expo Go and open the app again, so its JavaScript starts again. Keep the route when the app has the probe. |
+| `expo-rtl` | Turn RTL on or off in the app.json of the app, and open the app again in that direction. `off` puts app.json back as it was. |
 | `expo-warm` | Ask Metro (`npx expo start`) for the app and its bundle, so that the first open in Expo Go is fast. Give the SHA-256 of the bundle. |
 | `version` | Print the loupe version and the host it runs on. |
 
@@ -176,6 +177,9 @@ loupe takes the safe area from Android.
   app is in front, so it never shows another app to your agent.
 - loupe makes no call over the network. It talks to the device through adb,
   and the Expo commands talk to Metro on this machine (127.0.0.1) only.
+- `expo-rtl` is the one command that writes in your project: `on` edits
+  `app.json` and keeps the file as it was in `.expo/loupe-rtl.json`, and
+  `off` puts it back.
 
 ## License
 

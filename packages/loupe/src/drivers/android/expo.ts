@@ -70,6 +70,8 @@ interface ShowOptions {
   link: string
   /** The route to wait for when the app has the probe. */
   route?: string
+  /** The direction to wait for when the app has the probe. */
+  direction?: ProbeReport['direction']
   timeout: number
   /** How long after an open loupe opens the link again. */
   openAgain?: number
@@ -112,7 +114,7 @@ export async function probeRouteInExpoGo(
  */
 export async function showInExpoGo(
   target: AndroidTarget,
-  { link, route, timeout, openAgain = OPEN_AGAIN_MS }: ShowOptions,
+  { link, route, direction, timeout, openAgain = OPEN_AGAIN_MS }: ShowOptions,
 ): Promise<ShownInExpoGo> {
   const start = Date.now()
   const opened = await openUrlAndroid(target, link, EXPO_GO)
@@ -157,15 +159,19 @@ export async function showInExpoGo(
       } else {
         const probe = ui.probe?.report
         appShows = true
-        if (
+        const onRoute =
           !probe ||
           route === undefined ||
           probe.route === undefined ||
           normalRoute(probe.route) === normalRoute(route)
-        ) {
+        const inDirection =
+          !probe || direction === undefined || probe.direction === direction
+        if (onRoute && inDirection) {
           return { opened, opens, closed, ms: Date.now() - start, probe }
         }
-        last = `the app on ${probe.route}`
+        last = onRoute
+          ? `the app in ${probe?.direction}`
+          : `the app on ${probe?.route}`
       }
     }
 

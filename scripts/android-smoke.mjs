@@ -9,8 +9,8 @@
 // closes. For that it downloads Expo Go from Expo, and starts Metro on
 // localhost. Last comes the gate of the checks: each defect pattern of the
 // probe app must fail its rule and each fixed twin must pass, in LTR with
-// `sweep`, then in RTL (Metro again with PROBE_APP_RTL=1) with `check
-// --mirror-of` against the LTR screens. Before the gate, an MCP client runs
+// `sweep`, then in RTL (`expo-rtl on`, and `expo-rtl off` after it) with
+// `check --mirror-of` against the LTR screens. Before the gate, an MCP client runs
 // the built `loupe mcp` on the probe app, in both protocol versions.
 //
 // A busy emulator can show an "isn't responding" dialog over the app under
@@ -34,6 +34,7 @@ import {
   EXPO_GO,
   installExpoGo,
   PORT,
+  PROBE_APP,
   startMetro,
   stopMetro,
   warmMetro,
@@ -225,34 +226,20 @@ function findNode(nodes, test) {
   return undefined
 }
 
-// With `wanted`, the link goes again this often while nothing shows: on
-// Android 14 and later, a cold start of Expo Go in RTL lands on its home
-// screen, and the second open shows the app (round 6).
-const OPEN_AGAIN_MS = 20_000
-
 /**
  * Reads the screen with `loupe ui` until the probe shows, for up to `limit`
- * ms; with `wanted`, until it shows that route in that direction, and the
- * link goes again every 20 s. On the first open, Expo Go shows its developer
+ * ms. On the first open, Expo Go shows its developer
  * menu: a sheet with a "Continue" button, then the menu with a "Close"
  * button. A busy emulator can show an "isn't responding" dialog for another
  * app. The dump of each has none of the app, so loupe taps each button, as
  * an agent does.
  */
-async function waitForProbe(limit, wanted) {
+async function waitForProbe(limit) {
   const start = Date.now()
-  let openedAt = start
   let screen
   do {
     screen = loupe('ui')
-    const probe = screen.data?.probe
-    if (
-      probe &&
-      (!wanted ||
-        (probe.route === wanted.route && probe.direction === wanted.direction))
-    ) {
-      return { screen, ms: Date.now() - start }
-    }
+    if (screen.data?.probe) return { screen, ms: Date.now() - start }
 
     const nodes = screen.data?.nodes ?? []
     const has = (test) => findNode(nodes, test) !== undefined
@@ -262,10 +249,6 @@ async function waitForProbe(limit, wanted) {
       loupe('tap', '--text', 'Continue', '--app', EXPO_GO)
     } else if (has((node) => node.text === 'Go home')) {
       loupe('tap', '--label', 'Close', '--app', EXPO_GO)
-    } else if (wanted && Date.now() - openedAt >= OPEN_AGAIN_MS) {
-      console.log(`The focus is on ${focus()}: the link goes again.`)
-      loupe('open-url', wanted.link, '--app', EXPO_GO)
-      openedAt = Date.now()
     }
     await sleep(1000)
   } while (Date.now() - start < limit)
@@ -905,30 +888,56 @@ function saveLtrScreens() {
 }
 
 /**
- * The RTL part of the gate. Metro starts again with PROBE_APP_RTL=1, which
- * sets forcesRTL, and Expo Go stops, because it applies forcesRTL when it
- * loads the app. Then `check --mirror-of` on each screen against its LTR
- * file. The new Metro goes into `metros`, so the caller stops it.
+ * The RTL part of the gate. `expo-rtl on` writes forcesRTL in the probe
+ * app's app.json and opens the app again in RTL. Then `check --mirror-of`
+ * on each screen against its LTR file. At the end, also after a failure,
+ * `expo-rtl off` must put app.json back byte for byte, delete the record,
+ * and show the app in LTR.
  */
-async function checkGateRtl(metros, files) {
-  await stopMetro(metros[0])
-  const metro = startMetro(path.join(out, 'metro-rtl.log'), {
-    PROBE_APP_RTL: '1',
-  })
-  metros.push(metro)
-  const warm = await warmMetro(metro)
-  adb('shell', 'am', 'force-stop', EXPO_GO)
+function checkGateRtl(files) {
+  const appJsonFile = path.join(PROBE_APP, 'app.json')
+  const record = path.join(PROBE_APP, '.expo', 'loupe-rtl.json')
+  const appJson = readFileSync(appJsonFile, 'utf8')
+  try {
+    checkGateRtlScreens(files, record)
+  } finally {
+    const off = loupe(
+      'expo-rtl',
+      'off',
+      '--port',
+      String(PORT),
+      '--timeout',
+      '180000',
+    )
+    check(
+      off.ok &&
+        off.data.changed &&
+        off.data.direction === 'ltr' &&
+        readFileSync(appJsonFile, 'utf8') === appJson &&
+        !existsSync(record),
+      `expo-rtl off: app.json as before and no record; the probe app in ${off.data?.direction ?? off.error?.code} after ${off.data?.ms} ms (${off.data?.launchState}; opened ${off.data?.opens} times)`,
+    )
+    if (!off.ok) keepScreen('gate-ltr-timeout.png')
+  }
+}
 
+function checkGateRtlScreens(files, record) {
   const [, firstPattern] = MIRROR_SCREENS[0]
-  const link = patternLink(firstPattern, 'defect')
   const route = `/${firstPattern}/defect`
-  loupe('open-url', link, '--app', EXPO_GO)
-  const first = await waitForProbe(180_000, { route, direction: 'rtl', link })
-  const probe = first.screen.data?.probe
-  const shown = probe?.route === route && probe.direction === 'rtl'
+  const on = loupe(
+    'expo-rtl',
+    'on',
+    '--route',
+    route,
+    '--port',
+    String(PORT),
+    '--timeout',
+    '180000',
+  )
+  const shown = on.ok && on.data.route === route && on.data.direction === 'rtl'
   check(
-    shown,
-    `gate: the probe app in RTL after ${first.ms} ms (Metro warm after ${warm} ms)`,
+    shown && on.data.changed && existsSync(record),
+    `expo-rtl on: the probe app in ${on.data?.direction ?? on.error?.code} on ${on.data?.route} after ${on.data?.ms} ms (${on.data?.launchState}; opened ${on.data?.opens} times)`,
   )
   if (!shown) {
     keepScreen('gate-rtl-timeout.png')
@@ -1422,15 +1431,15 @@ check(
 
 // The probe app in Expo Go, after the other checks: Metro takes the CPU of
 // the runner for a while, and the gesture timings above need it.
-const metros = [startMetro(path.join(out, 'metro.log'))]
+const metro = startMetro(path.join(out, 'metro.log'))
 try {
-  const ltr = await checkProbeApp(metros[0])
-  if (ltr) await checkGateRtl(metros, ltr)
+  const ltr = await checkProbeApp(metro)
+  if (ltr) checkGateRtl(ltr)
 } catch (error) {
   check(false, `probe app: ${error instanceof Error ? error.message : error}`)
   keepScreen('probe-app-error.png')
 } finally {
-  for (const metro of metros) await stopMetro(metro)
+  await stopMetro(metro)
 }
 
 console.log(

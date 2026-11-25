@@ -7,6 +7,7 @@ import { doubleTapCommand } from './double-tap'
 import { dragCommand } from './drag'
 import { expoOpenCommand } from './expo-open'
 import { expoReloadCommand } from './expo-reload'
+import { expoRtlCommand } from './expo-rtl'
 import { expoWarmCommand } from './expo-warm'
 import { foregroundCommand } from './foreground'
 import { holdCommand } from './hold'
@@ -37,6 +38,7 @@ export const registry = createRegistry([
   dragCommand,
   expoOpenCommand,
   expoReloadCommand,
+  expoRtlCommand,
   expoWarmCommand,
   foregroundCommand,
   holdCommand,

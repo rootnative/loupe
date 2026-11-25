@@ -21,8 +21,9 @@ schema, so this skill doesn't repeat them. loupe works on Android 11
 - On a real phone, give `app` in each call. loupe then reads the screen
   only while that app is in front, so it never shows you another app.
 - Don't change a setting that the user didn't ask for. `rotate` and
-  `theme` change the device. Put back what you changed. `sweep` puts the
-  orientation and the theme back itself.
+  `theme` change the device, and `expo-rtl` changes the app.json of the
+  app. Put back what you changed: after `expo-rtl on`, run `expo-rtl off`.
+  `sweep` puts the orientation and the theme back itself.
 
 ## Before the first check
 
@@ -50,6 +51,10 @@ schema, so this skill doesn't repeat them. loupe works on Android 11
 4. To start the app again from a clean state, run `expo-reload`. It stops
    Expo Go and opens the app again, on the route that the probe shows.
    With no probe, it opens the root: give `route` for another screen.
+5. To see the app in RTL, run `expo-rtl on`. It writes `supportsRTL` and
+   `forcesRTL` in the app's app.json, keeps the file as it was, and opens
+   the app again in RTL. When you're done, run `expo-rtl off`: it puts
+   app.json back.
 
 ## Units
 
@@ -108,8 +113,10 @@ fewer.
 To check `mirrored`:
 
 1. Show the screen in LTR. Run `ui` with `out` set to a file.
-2. Show the same screen in RTL, in the same orientation.
+2. Show the same screen in RTL, in the same orientation. In Expo Go, run
+   `expo-rtl on` with the route of the screen.
 3. Run `check` with `mirrorOf` set to that file.
+4. In Expo Go, run `expo-rtl off` when you're done.
 
 ## Read a result
 

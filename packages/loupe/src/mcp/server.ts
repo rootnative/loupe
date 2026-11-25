@@ -29,7 +29,7 @@ export const INSTRUCTIONS = [
   'loupe checks the layout of a mobile app on an Android emulator or device. Its tools give numbers in dp.',
   'Ask the user before you start an emulator, and before you open an app or a link on a device.',
   'On a real phone, give `app` in each call.',
-  'Put back the orientation and the theme that you change; a sweep does it itself.',
+  'Put back what you change: the orientation, the theme, and RTL (`expo-rtl off`). A sweep puts back the orientation and the theme itself.',
   'Decide pass or fail with `check` or `sweep`, not from a screenshot alone.',
   'The loupe skill (skills/loupe/SKILL.md in the package) has the workflow, the rules, and what to do for each error code.',
 ].join(' ')

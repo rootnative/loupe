@@ -1,4 +1,5 @@
 import { createHash } from 'node:crypto'
+import { setTimeout as sleep } from 'node:timers/promises'
 import { z } from 'zod'
 import { type CommandContext } from '../core/context'
 import { LoupeError, throwIfCancelled } from '../core/errors'
@@ -41,6 +42,15 @@ const manifestSchema = z.object({
           name: z.string().optional(),
           slug: z.string().optional(),
           sdkVersion: z.string().optional(),
+          extra: z
+            .object({
+              supportsRTL: z.unknown().optional(),
+              forcesRTL: z.unknown().optional(),
+            })
+            .optional(),
+          _internal: z
+            .object({ dynamicConfigPath: z.string().nullish() })
+            .optional(),
         })
         .optional(),
       expoGo: z
@@ -62,6 +72,13 @@ export interface ExpoApp {
   sdkVersion?: string
   /** The folder of the app on this machine. */
   projectRoot?: string
+  /**
+   * app.config.js or app.config.ts on this machine. An `_internal` field of
+   * Expo CLI, so it can go away.
+   */
+  dynamicConfigPath?: string
+  /** `extra.supportsRTL` and `extra.forcesRTL` of the app config, as true or not. */
+  rtl: { supports: boolean; forces: boolean }
   /** The path and query of the launch bundle on Metro. */
   bundlePath: string
 }
@@ -189,7 +206,44 @@ export async function readExpoApp(
     slug: client?.slug,
     sdkVersion: client?.sdkVersion,
     projectRoot: manifest.extra?.expoGo?.developer?.projectRoot,
+    dynamicConfigPath: client?._internal?.dynamicConfigPath ?? undefined,
+    rtl: {
+      supports: client?.extra?.supportsRTL === true,
+      forces: client?.extra?.forcesRTL === true,
+    },
     bundlePath: `${bundle.pathname}${bundle.search}`,
+  }
+}
+
+// Metro reads the app config for each manifest: an edit of app.json was in
+// it 1 s later (round 10).
+const MANIFEST_LIMIT = 10_000
+const MANIFEST_INTERVAL = 250
+
+/**
+ * Waits until Metro's manifest gives `forcesRTL` as `forces`, for 10 s or
+ * `timeout` when it's shorter. Else `unsupported`: a dynamic config can
+ * replace `extra`.
+ */
+export async function untilManifestRtl(
+  context: CommandContext,
+  port: number,
+  forces: boolean,
+  timeout = MANIFEST_LIMIT,
+): Promise<void> {
+  const limit = Math.min(timeout, MANIFEST_LIMIT)
+  const start = Date.now()
+  for (;;) {
+    const app = await readExpoApp(context, port)
+    if (app.rtl.forces === forces) return
+    if (Date.now() - start >= limit) {
+      throw new LoupeError(
+        'unsupported',
+        `loupe wrote app.json, but after ${Math.round(limit / 1000)} s the manifest of Metro still gives forcesRTL ${app.rtl.forces}. ${app.dynamicConfigPath?.split(/[\\/]/).pop() ?? 'A dynamic config'} can replace extra: it must keep the extra of app.json ("...config.extra").`,
+      )
+    }
+    throwIfCancelled(context.signal)
+    await sleep(MANIFEST_INTERVAL)
   }
 }
 

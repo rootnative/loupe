@@ -20,7 +20,7 @@ const DEFAULT_SHOW_TIMEOUT = 120_000
 // Metro (3 steps), then Expo Go opens the app, then it shows.
 const STEPS = 5
 
-/** The `timeout` of `expo-open` and `expo-reload`. */
+/** The `timeout` of `expo-open`, `expo-reload` and `expo-rtl`. */
 export const showTimeoutField = z
   .number()
   .int()
@@ -31,7 +31,7 @@ export const showTimeoutField = z
     `How long to wait for the app after the open, in ms. ${DEFAULT_SHOW_TIMEOUT} by default.`,
   )
 
-/** The output of `expo-open` and `expo-reload`. */
+/** The output of `expo-open`, `expo-reload` and `expo-rtl`. */
 export const shownSchema = z.object({
   link: z.string().describe('The link that loupe opened in Expo Go.'),
   app: z.object({
@@ -62,6 +62,10 @@ export const shownSchema = z.object({
     .string()
     .optional()
     .describe("The route that the app's probe shows."),
+  direction: z
+    .enum(['ltr', 'rtl'])
+    .optional()
+    .describe("The layout direction that the app's probe shows."),
   probe: z
     .boolean()
     .describe(
@@ -79,6 +83,16 @@ export interface ShowInput {
   device?: string
 }
 
+export interface ShowOptions {
+  /** Stop Expo Go before the open. */
+  reload?: boolean
+  /**
+   * Runs after Metro is warm, before Expo Go opens the app. It gives the
+   * direction to wait for when the app has the probe.
+   */
+  prepare?: () => Promise<'ltr' | 'rtl' | undefined>
+}
+
 /**
  * Opens the app in Expo Go and waits until it shows. With `reload`, loupe
  * stops Expo Go first, so the app starts in a new process: on `route`, else
@@ -92,11 +106,12 @@ export async function showApp(
     timeout = DEFAULT_SHOW_TIMEOUT,
     device,
   }: ShowInput,
-  reload = false,
+  { reload = false, prepare }: ShowOptions = {},
 ): Promise<Shown> {
   const target = await selectAndroidDevice(context, device)
   const expoGo = await readExpoGoVersion(target)
   const warmed = await warmExpo(context, { port }, STEPS)
+  const direction = await prepare?.()
   const warnings: string[] = []
   const sdk = sdkWarning(expoGo, warmed.app.sdkVersion)
   if (sdk) warnings.push(sdk)
@@ -118,6 +133,7 @@ export async function showApp(
   const shown = await showInExpoGo(target, {
     link,
     route: openRoute,
+    direction,
     timeout,
   })
   if (!shown.probe) {
@@ -140,6 +156,7 @@ export async function showApp(
     closed: shown.closed,
     ms: Date.now() - start,
     route: shown.probe?.route,
+    direction: shown.probe?.direction,
     probe: shown.probe !== undefined,
     warnings,
   }
@@ -148,12 +165,13 @@ export async function showApp(
 /** The text of a `Shown`, after `lead`: what loupe did. */
 export function describeShown(
   lead: string,
-  { app, opens, closed, ms, route, warnings }: Shown,
+  { app, opens, closed, ms, route, direction, warnings }: Shown,
 ): string {
   return [
     [
       `${lead}: ${app.name ?? app.slug ?? 'the app'} shows`,
       ...(route ? [` on ${route}`] : []),
+      ...(direction ? [` in ${direction.toUpperCase()}`] : []),
       ` after ${ms} ms`,
       ...(closed.length ? [`; closed ${closed.join(', ')}`] : []),
       ...(opens > 1 ? [`; opened ${opens} times`] : []),

@@ -26,7 +26,7 @@ export const expoReloadCommand = defineCommand({
   }),
   positionals: ['route'],
   output: shownSchema,
-  run: (input, context) => showApp(context, input, true),
+  run: (input, context) => showApp(context, input, { reload: true }),
   format: (shown) =>
     describeShown(
       `Stopped Expo Go${shown.expoGo ? ` ${shown.expoGo}` : ''} and opened ${shown.link} again`,
