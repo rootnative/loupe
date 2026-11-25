@@ -1,0 +1,121 @@
+name: iOS fixtures
+
+# Recorder round 11: builds the two ways to drive an iOS simulator (a Swift
+# tool over the macOS Accessibility API, and an XCTest runner) on the macOS
+# setups loupe must support, and records what each way gives. Each job
+# builds the runner with Xcode 16.4 and with Xcode 26.3, and runs each build
+# with its own Xcode, so the round shows if a build from one Xcode runs on
+# another. Run it by hand. Each job uploads its recording and its build.
+on:
+  workflow_dispatch:
+
+# The token only reads the repository.
+permissions:
+  contents: read
+
+jobs:
+  record:
+    name: Record (${{ matrix.name }})
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # An Intel Mac with Xcode 16.4 and iOS 18.6: its simulator runs
+          # x86_64 code.
+          - name: intel
+            runner: macos-15-intel
+            xcode: '16.4'
+            ios: '18.6'
+            device: iPhone 16 Pro
+          - name: arm-18
+            runner: macos-15
+            xcode: '16.4'
+            ios: '18.5'
+            device: iPhone 16 Pro
+          - name: arm-26
+            runner: macos-15
+            xcode: '26.3'
+            ios: '26.2'
+            device: iPhone 17 Pro
+    env:
+      DEVELOPER_DIR: /Applications/Xcode_${{ matrix.xcode }}.app/Contents/Developer
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Setup Node.js
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version-file: .nvmrc
+
+      # Pinned by version and SHA-256. The zip holds a universal binary.
+      - name: Install XcodeGen
+        env:
+          VERSION: 2.46.0
+          SHA256: 4d9e34b62172d645eed6457cac13fc222569974098ef4ee9c3368bedf0196806
+        run: |
+          curl -fsSL -o "$RUNNER_TEMP/xcodegen.zip" "https://github.com/yonaskolb/XcodeGen/releases/download/$VERSION/xcodegen.zip"
+          echo "$SHA256  $RUNNER_TEMP/xcodegen.zip" | shasum -a 256 -c -
+          unzip -q "$RUNNER_TEMP/xcodegen.zip" -d "$RUNNER_TEMP"
+          echo "$RUNNER_TEMP/xcodegen/bin" >> "$GITHUB_PATH"
+
+      - name: Generate the runner project
+        run: |
+          mkdir -p "$RUNNER_TEMP/build"
+          xcodegen generate --spec scripts/ios/runner/project.yml --project "$RUNNER_TEMP/build"
+
+      - name: Build the tool (way A)
+        run: |
+          for arch in arm64 x86_64; do
+            xcrun swiftc -O -target "$arch-apple-macos13" scripts/ios/simtool.swift -o "$RUNNER_TEMP/build/simtool-$arch"
+          done
+          lipo -create "$RUNNER_TEMP/build/simtool-arm64" "$RUNNER_TEMP/build/simtool-x86_64" -output "$RUNNER_TEMP/build/simtool"
+
+      # A build that fails is data for the round, so the loop goes on. The
+      # recorder reports the missing build, and its log is in the artifact.
+      - name: Build the runner (way B) with Xcode 16.4 and 26.3
+        run: |
+          for xcode in 16.4 26.3; do
+            if DEVELOPER_DIR="/Applications/Xcode_$xcode.app/Contents/Developer" xcodebuild build-for-testing \
+              -project "$RUNNER_TEMP/build/LoupeRunner.xcodeproj" \
+              -scheme LoupeRunner \
+              -destination "generic/platform=iOS Simulator" \
+              -derivedDataPath "$RUNNER_TEMP/build/runner-$xcode" \
+              ARCHS="arm64 x86_64" ONLY_ACTIVE_ARCH=NO \
+              > "$RUNNER_TEMP/build/runner-$xcode.log" 2>&1
+            then
+              echo "Xcode $xcode built the runner."
+            else
+              echo "::warning::Xcode $xcode didn't build the runner."
+              tail -40 "$RUNNER_TEMP/build/runner-$xcode.log"
+            fi
+          done
+
+      - name: Record
+        run: node scripts/record-ios.mjs "$RUNNER_TEMP/ios/${{ matrix.name }}" --ios "${{ matrix.ios }}" --device "${{ matrix.device }}" --build "$RUNNER_TEMP/build"
+
+      # A partial recording still helps, so it uploads after a failure too.
+      - name: Upload the recording
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@330a01c490aca151604b8cf639adc76d48f6c5d4 # v5.0.0
+        with:
+          name: ios-${{ matrix.name }}
+          path: ${{ runner.temp }}/ios/
+          retention-days: 14
+          if-no-files-found: error
+
+      # The tool and the runner builds, so a check on a Mac needs no build
+      # there.
+      - name: Upload the build
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@330a01c490aca151604b8cf639adc76d48f6c5d4 # v5.0.0
+        with:
+          name: ios-build-${{ matrix.name }}
+          path: |
+            ${{ runner.temp }}/build/*.log
+            ${{ runner.temp }}/build/simtool
+            ${{ runner.temp }}/build/runner-*/Build/Products/
+          retention-days: 14
+          if-no-files-found: warn

@@ -1,0 +1,35 @@
+# Way B of the iOS driver spike (recorder round 11): a UI test that serves
+# XCUITest on 127.0.0.1. XcodeGen makes the Xcode project from this file in
+# CI; no generated project goes into git. The UI test needs a host app, so
+# LoupeHost is an empty one.
+name: LoupeRunner
+options:
+  bundleIdPrefix: io.github.rootnative.loupe
+  deploymentTarget:
+    iOS: '16.0'
+settings:
+  base:
+    SWIFT_VERSION: '5.0'
+    GENERATE_INFOPLIST_FILE: 'YES'
+    CODE_SIGNING_ALLOWED: 'NO'
+targets:
+  LoupeHost:
+    type: application
+    platform: iOS
+    sources: [Host]
+    settings:
+      base:
+        INFOPLIST_KEY_UILaunchScreen_Generation: 'YES'
+  LoupeRunner:
+    type: bundle.ui-testing
+    platform: iOS
+    sources: [Runner]
+    dependencies:
+      - target: LoupeHost
+schemes:
+  LoupeRunner:
+    build:
+      targets:
+        LoupeRunner: [test]
+    test:
+      targets: [LoupeRunner]
