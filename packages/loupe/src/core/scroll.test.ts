@@ -156,6 +156,23 @@ describe('viewContent', () => {
     expect(viewContent(header, view)).toBe(viewContent(before, view))
     expect(viewContent(moved, view)).not.toBe(viewContent(before, view))
   })
+
+  it("leaves out Expo Go's overlay in Expo Go, where its label comes and goes", () => {
+    const row = node([0, 150, 400, 50], { text: 'Row 1' })
+    const overlay = (children: UiNode[]) =>
+      node([330, 100, 70, 120], { type: 'c23', children })
+    const button = node([340, 110, 50, 50], { label: 'Tools' })
+    const label = node([335, 170, 60, 30], { text: 'Tools' })
+    const withLabel = [row, overlay([button, label])]
+    const without = [row, overlay([button])]
+
+    expect(viewContent(withLabel, view, 'host.exp.exponent')).toBe(
+      viewContent(without, view, 'host.exp.exponent'),
+    )
+    expect(viewContent(withLabel, view, 'com.example.app')).not.toBe(
+      viewContent(without, view, 'com.example.app'),
+    )
+  })
 })
 
 describe('cutAtIncomingEdge', () => {

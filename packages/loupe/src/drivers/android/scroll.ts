@@ -88,12 +88,12 @@ export async function scrollToAndroid(
       )
     }
     view = next
-    const before = viewContent(ui.nodes, next.frame)
+    const before = viewContent(ui.nodes, next.frame, app)
     const { from, to } = scrollStroke(next.frame, direction, share)
     await dragAndroid(target, from, to, STROKE, app)
     scrolls += 1
     ui = await readAndroidUi(target, app)
-    ended = viewContent(ui.nodes, next.frame) === before
+    ended = viewContent(ui.nodes, next.frame, app) === before
   }
 
   for (;;) {
@@ -164,11 +164,11 @@ export async function scrollOnceAndroid(
   const view = scrollViewFor(ui.nodes, 'down', ui.display.size)
   if (!view || scrollAxisOf(view) !== 'y') return undefined
 
-  const top = viewContent(ui.nodes, view.frame)
+  const top = viewContent(ui.nodes, view.frame, app)
   const { from, to } = scrollStroke(view.frame, 'down')
   await dragAndroid(target, from, to, STROKE, app)
   const after = await readAndroidUi(target, app)
-  return viewContent(after.nodes, view.frame) === top
+  return viewContent(after.nodes, view.frame, app) === top
     ? undefined
     : { frame: view.frame, top }
 }
@@ -189,7 +189,11 @@ export async function flingToTopAndroid(
   while (flings < MAX_FLINGS) {
     await swipeAndroid(target, from, to, FLING_MS, app)
     flings += 1
-    const now = viewContent((await readAndroidUi(target, app)).nodes, frame)
+    const now = viewContent(
+      (await readAndroidUi(target, app)).nodes,
+      frame,
+      app,
+    )
     if (now === top) return []
     if (now === shown) break
     shown = now

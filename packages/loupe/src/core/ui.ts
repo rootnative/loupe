@@ -44,6 +44,21 @@ export type UiNode = z.infer<typeof uiNodeSchema>
 
 export type Axis = 'x' | 'y'
 
+const EXPO_GO = 'host.exp.exponent'
+
+/**
+ * True for the root of Expo Go's own overlay (the "Tools" button and its
+ * label) when the app is Expo Go: a node whose class isn't `android.*`.
+ * The app's views are all `android.*`. A fresh Expo Go shows the label for
+ * a few seconds, so the overlay can change while the app keeps still.
+ */
+export function isExpoGoOverlay(
+  node: UiNode,
+  app: string | undefined,
+): boolean {
+  return app === EXPO_GO && !node.type.startsWith('android.')
+}
+
 /** A scroll view scrolls along x when its class says so, else along y. */
 export function scrollAxisOf(node: UiNode): Axis {
   return /HorizontalScrollView|ViewPager/.test(node.type) ? 'x' : 'y'

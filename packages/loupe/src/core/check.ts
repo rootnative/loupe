@@ -11,7 +11,7 @@ import { LoupeError } from './errors'
 import { type ColumnSpan, inkColumns } from './ink'
 import { EDGES, type Edge, type InsetsReading } from './insets'
 import { type Image, type PixelRect } from './png'
-import { type Axis, scrollAxisOf, type UiNode } from './ui'
+import { type Axis, isExpoGoOverlay, scrollAxisOf, type UiNode } from './ui'
 import {
   containsRect,
   intersection,
@@ -125,22 +125,19 @@ interface Placed {
   scrollAxes: ReadonlySet<Axis>
 }
 
-const EXPO_GO = 'host.exp.exponent'
-
 /**
  * Each node that the rules can look at. In Expo Go, its own overlay (the
  * "Tools" button) sits in a subtree under a class that isn't `android.*`;
  * the app's views are all `android.*`, so that subtree is left out.
  */
 function place(screen: ScreenTree): Placed[] {
-  const skipOwn = screen.app === EXPO_GO
   const placed: Placed[] = []
   const walk = (
     nodes: readonly UiNode[],
     scrollAxes: ReadonlySet<Axis>,
   ): void => {
     for (const node of nodes) {
-      if (skipOwn && !node.type.startsWith('android.')) continue
+      if (isExpoGoOverlay(node, screen.app)) continue
       placed.push({ node, siblings: nodes, scrollAxes })
       const inner = node.scrollable
         ? new Set([...scrollAxes, scrollAxisOf(node)])

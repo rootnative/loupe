@@ -1,6 +1,6 @@
 import { findNode } from './element'
 import { LoupeError } from './errors'
-import { type Axis, scrollAxisOf, type UiNode } from './ui'
+import { type Axis, isExpoGoOverlay, scrollAxisOf, type UiNode } from './ui'
 import {
   intersection,
   type Point,
@@ -107,22 +107,27 @@ export function scrollStroke(
 /**
  * What the scroll view shows, as text: each node that has a part in
  * `frame`, with its frame. Two equal readings mean the view didn't move.
+ * In Expo Go (`app`), its own overlay doesn't count.
  */
-export function viewContent(nodes: readonly UiNode[], frame: Rect): string {
-  return JSON.stringify(
-    everyNode(nodes)
-      .filter((node) => intersection(node.frame, frame) !== null)
-      .map(({ type, text, label, id, frame: { x, y, width, height } }) => [
-        type,
-        text,
-        label,
-        id,
-        x,
-        y,
-        width,
-        height,
-      ]),
-  )
+export function viewContent(
+  nodes: readonly UiNode[],
+  frame: Rect,
+  app?: string,
+): string {
+  const rows: unknown[][] = []
+  const walk = (list: readonly UiNode[]) => {
+    for (const node of list) {
+      if (isExpoGoOverlay(node, app)) continue
+      if (intersection(node.frame, frame) !== null) {
+        const { type, text, label, id } = node
+        const { x, y, width, height } = node.frame
+        rows.push([type, text, label, id, x, y, width, height])
+      }
+      walk(node.children ?? [])
+    }
+  }
+  walk(nodes)
+  return JSON.stringify(rows)
 }
 
 /**

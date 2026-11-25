@@ -16,6 +16,7 @@ All notable changes to `@rootnative/loupe` are in this file. The format follows 
 
 ### Fixed
 
+- `scroll-to` and `sweep --scroll` leave out Expo Go's own overlay when they compare what a scroll view shows. A fresh Expo Go shows a "Tools" label for a few seconds. loupe took the change of that label for a change of the list: `sweep --scroll` warned that the list didn't show its top again, and a scroll that didn't move could count as one.
 - `dismiss` sends Back or Escape only when the input focus is on the layer that it closes. On a busy device, Android moves the input focus a moment after the window focus. A Back right after the notification shade closed could reach the shade, and the share sheet under it stayed open. When the input focus doesn't arrive within the limit, `dismiss` gives `timeout` and sends no key.
 
 ## [0.0.0-alpha.1] - 2026-11-24
