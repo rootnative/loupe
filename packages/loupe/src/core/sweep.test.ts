@@ -74,6 +74,10 @@ interface Script {
   back?: string[] | LoupeError
   /** The error of each restart. */
   reloadError?: LoupeError
+  /** The directions whose switch stops the app. */
+  restartFor?: string[]
+  /** The error of the switch to each direction. */
+  directionErrors?: Record<string, LoupeError>
 }
 
 function fakeDriver(
@@ -87,6 +91,8 @@ function fakeDriver(
     scrollErrors = {},
     back = [],
     reloadError,
+    restartFor = [],
+    directionErrors = {},
   }: Script = {},
   start: DeviceLook = { orientation: 'portrait', theme: 'light' },
 ) {
@@ -96,9 +102,17 @@ function fakeDriver(
   let below = false
   const driver: SweepDriver = {
     look: async () => ({ ...start }),
-    open: async (link, cold) => {
+    open: async (link, { cold, direction }) => {
       url = link
-      calls.push(`open ${link}${cold ? ' cold' : ''}`)
+      calls.push(
+        `open ${link}${cold ? ' cold' : ''}${cold && direction ? ` ${direction}` : ''}`,
+      )
+    },
+    setDirection: async (direction) => {
+      calls.push(`direction ${direction}`)
+      const error = directionErrors[direction]
+      if (error) throw error
+      return { restarted: restartFor.includes(direction) }
     },
     reload: async () => {
       calls.push('reload')
@@ -145,7 +159,7 @@ function fakeDriver(
     },
     restore: async (to, changed) => {
       calls.push(
-        `restore ${to.orientation} ${to.theme} ${changed.orientation} ${changed.theme}`,
+        `restore ${to.orientation} ${to.theme} ${changed.orientation} ${changed.theme}${changed.direction ? ' direction' : ''}`,
       )
       return restore
     },
@@ -537,6 +551,67 @@ describe('sweep, progress and cancel', () => {
       passed: false,
       error: { code: 'tool_failed' },
     })
+  })
+
+  it('sets each direction once, before its variants, and opens cold after a switch', async () => {
+    const { driver, calls } = fakeDriver({ restartFor: ['rtl'] })
+
+    const report = await sweep(driver, {
+      urls: [A, B],
+      orientations: ['portrait', 'landscape-left'],
+      directions: ['ltr', 'rtl'],
+      out: path.join(out, 'directions'),
+    })
+
+    expect(calls).toEqual([
+      'direction ltr',
+      `open ${A}`,
+      `open ${B}`,
+      `open ${A}`,
+      'rotate landscape-left',
+      `open ${B}`,
+      'direction rtl',
+      `open ${A} cold rtl`,
+      'rotate portrait',
+      `open ${B}`,
+      `open ${A}`,
+      'rotate landscape-left',
+      `open ${B}`,
+      'restore portrait light true false direction',
+    ])
+    expect(
+      report.variants.map(({ name, direction }) => [name, direction]),
+    ).toEqual([
+      ['portrait-light-ltr', 'ltr'],
+      ['landscape-left-light-ltr', 'ltr'],
+      ['portrait-light-rtl', 'rtl'],
+      ['landscape-left-light-rtl', 'rtl'],
+    ])
+    expect(report.screens.map((screen) => screen.variant)).toContain(
+      'landscape-left-light-rtl',
+    )
+  })
+
+  it('puts the look back and gives the error when a direction fails', async () => {
+    const { driver, calls } = fakeDriver({
+      directionErrors: {
+        rtl: new LoupeError('unsupported', 'No app.json.'),
+      },
+    })
+
+    await expect(
+      sweep(driver, {
+        urls: [A],
+        directions: ['ltr', 'rtl'],
+        out: path.join(out, 'direction-error'),
+      }),
+    ).rejects.toMatchObject({ code: 'unsupported' })
+    expect(calls).toEqual([
+      'direction ltr',
+      `open ${A}`,
+      'direction rtl',
+      'restore portrait light false false direction',
+    ])
   })
 
   it('gives the progress after each link of each variant', async () => {

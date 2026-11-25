@@ -7,7 +7,9 @@ import { ORIENTATIONS, type Orientation } from '../core/display'
 import { LoupeError } from '../core/errors'
 import {
   sweep,
+  SWEEP_DIRECTIONS,
   SWEEP_THEMES,
+  type SweepDirection,
   sweepScreenSchema,
   type SweepTheme,
   sweepVariantSchema,
@@ -16,6 +18,10 @@ import { DEFAULT_WAIT_TIMEOUT, timeoutField } from '../core/wait'
 import { selectAndroidDevice } from '../drivers/android/devices'
 import { requireAppOnDevice } from '../drivers/android/foreground'
 import { androidSweepDriver } from '../drivers/android/sweep'
+import { requireAppJson } from '../expo/app-config'
+import { EXPO_GO } from '../expo/expo-go'
+import { DEFAULT_PORT, portField } from '../expo/metro'
+import { expoProject } from '../expo/rtl'
 
 const SWEEP_RULES = RULES.filter((rule) => rule !== 'mirrored')
 const LIST = /^[a-z-]+(,[a-z-]+)*$/
@@ -66,7 +72,7 @@ const failureSchema = sweepScreenSchema
 export const sweepCommand = defineCommand({
   name: 'sweep',
   summary:
-    'Open each link in each orientation and theme, check each screen, and write a report, the screenshots and a contact sheet for each variant',
+    'Open each link in each orientation, theme and direction, check each screen, and write a report, the screenshots and a contact sheet for each variant',
   input: z.object({
     url: z
       .array(
@@ -115,6 +121,16 @@ export const sweepCommand = defineCommand({
       .describe(
         'Also scroll each screen down once, by 60 % of its largest vertical scroll view, and check it again: <variant>/<number>-scrolled.png and <variant>-scrolled.png. Then loupe scrolls back to the top.',
       ),
+    direction: z
+      .string()
+      .regex(LIST, 'The directions are a comma list.')
+      .optional()
+      .describe(
+        `The layout directions to check, as a comma list of ${SWEEP_DIRECTIONS.join(', ')}. Only for an app in Expo Go (app ${EXPO_GO}): loupe sets each one in app.json as expo-rtl does, opens the app again, and puts app.json back at the end. Left out: only the direction that the app has.`,
+      ),
+    port: portField.describe(
+      `The port of Metro on this machine (npx expo start), for direction. ${DEFAULT_PORT} by default.`,
+    ),
     reloadEvery: z
       .number()
       .int()
@@ -154,7 +170,7 @@ export const sweepCommand = defineCommand({
     if (rules.includes('mirrored')) {
       throw new LoupeError(
         'invalid_input',
-        'A sweep runs in one layout direction, so it has no mirrored rule. Run check --mirror-of on a screen for that.',
+        'A sweep checks each screen on its own, so it has no mirrored rule. Run check --mirror-of on a screen for that.',
       )
     }
     const orientations = listOf<Orientation>(
@@ -169,13 +185,38 @@ export const sweepCommand = defineCommand({
         'reloadEvery needs app: the package that loupe stops before each N-th link.',
       )
     }
+    const directions = listOf<SweepDirection>(
+      input.direction,
+      SWEEP_DIRECTIONS,
+      'a direction',
+    )
+    const port = input.port ?? DEFAULT_PORT
+    if (directions) {
+      if (input.app !== EXPO_GO) {
+        throw new LoupeError(
+          'invalid_input',
+          `direction needs the app in Expo Go: app ${EXPO_GO}. loupe sets the direction in app.json, as expo-rtl does.`,
+        )
+      }
+      // Before the first screen, so a project that loupe can't switch
+      // fails at once, not after the screens of the first direction.
+      const { projectRoot, dynamicConfigPath } = await expoProject(
+        context,
+        port,
+      )
+      await requireAppJson(projectRoot, 'on', dynamicConfigPath)
+    }
 
     const target = await selectAndroidDevice(context, input.device)
     requireAppOnDevice(target, input.app)
     const report = await sweep(
-      androidSweepDriver(target, input.app, rules, {
-        waitTimeout: input.waitTimeout ?? DEFAULT_WAIT_TIMEOUT,
-      }),
+      androidSweepDriver(
+        target,
+        input.app,
+        rules,
+        { waitTimeout: input.waitTimeout ?? DEFAULT_WAIT_TIMEOUT },
+        directions ? { context, port } : undefined,
+      ),
       {
         urls: input.url,
         orientations,
@@ -183,6 +224,7 @@ export const sweepCommand = defineCommand({
         out: input.out,
         scroll: input.scroll,
         reloadEvery: input.reloadEvery,
+        directions,
       },
       context,
     )

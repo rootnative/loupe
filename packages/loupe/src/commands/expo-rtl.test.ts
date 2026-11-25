@@ -1,11 +1,4 @@
-import {
-  existsSync,
-  mkdtempSync,
-  readFileSync,
-  rmSync,
-  writeFileSync,
-} from 'node:fs'
-import { tmpdir } from 'node:os'
+import { existsSync, readFileSync } from 'node:fs'
 import path from 'node:path'
 import { afterAll, describe, expect, it } from 'vitest'
 import { runCommand } from '../core/run-command'
@@ -13,57 +6,20 @@ import { RECORD_PATH } from '../expo/app-config'
 import { type FakeCall, type FakeRun } from '../testing/fake-exec'
 import { fakeFetch } from '../testing/fake-fetch'
 import { expoDump, expoEmulator } from '../testing/expo-go'
+import {
+  liveManifest,
+  PROBE_APP_JSON as APP_JSON,
+  removeExpoProjects,
+  tempExpoProject as project,
+} from '../testing/expo-project'
 import { recorded } from '../testing/fixtures'
-import { METRO_MANIFEST, metroRoutes } from '../testing/metro'
+import { metroRoutes } from '../testing/metro'
 import { registry } from './index'
 
 const COLD = recorded('api-30/extra/am-start-https.txt')
 const WARM = recorded('api-36/extra/am-start-https.txt')
-const APP_JSON = `${JSON.stringify(
-  {
-    expo: {
-      name: 'Probe app',
-      slug: 'probe-app',
-      orientation: 'default',
-      userInterfaceStyle: 'automatic',
-    },
-  },
-  null,
-  2,
-)}\n`
 
-const roots: string[] = []
-afterAll(() => {
-  for (const root of roots) rmSync(root, { recursive: true, force: true })
-})
-
-/** A project folder with this app.json, or with none. */
-function project(appJson: string | null = APP_JSON): string {
-  const root = mkdtempSync(path.join(tmpdir(), 'loupe-expo-rtl-'))
-  roots.push(root)
-  if (appJson !== null) writeFileSync(path.join(root, 'app.json'), appJson)
-  return root
-}
-
-/**
- * The probe app's manifest for the project in `root`. With `live`, it has
- * the extra of app.json now, as Metro reads app.json for each manifest.
- */
-function manifestOf(root: string, live: boolean) {
-  return async () => {
-    const manifest = JSON.parse(METRO_MANIFEST)
-    manifest.extra.expoGo.developer.projectRoot = root
-    const file = path.join(root, 'app.json')
-    if (live && existsSync(file)) {
-      manifest.extra.expoClient.extra = JSON.parse(
-        readFileSync(file, 'utf8'),
-      ).expo.extra
-    }
-    return new Response(JSON.stringify(manifest), {
-      headers: { 'content-type': 'application/expo+json' },
-    })
-  }
-}
+afterAll(removeExpoProjects)
 
 /** An API 36 emulator, and the Metro of the project in `root`. */
 function emulator(
@@ -75,7 +31,7 @@ function emulator(
   const { context, calls } = expoEmulator(36, dumps, {}, start)
   const { fetch } = fakeFetch({
     ...metroRoutes(),
-    '/': manifestOf(root, live),
+    '/': liveManifest(root, live),
   })
   return { context: { ...context, fetch }, calls }
 }

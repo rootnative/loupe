@@ -85,7 +85,11 @@ Give `sweep` one `url` for each screen. Add `orientation`
 screen in each of them. Add `scroll` to check each screen again after one
 scroll down. For a long list, add `reloadEvery` (for example 10) with
 `app`: loupe stops the app before each 10th link, so stacked screens
-don't slow it down. A restarted screen has `reloaded` in the report.
+don't slow it down. A restarted screen has `reloaded` in the report. In
+Expo Go, add `direction` (`ltr,rtl`) to check each screen in both layout
+directions. loupe sets each direction once, in app.json, and puts app.json
+back at the end. Each variant name then ends with its direction:
+`portrait-light-rtl`.
 
 - The result lists each screen that failed, with each finding and its
   numbers. You don't need to check those screens again.

@@ -13,6 +13,11 @@ export const SWEEP_THEMES = ['light', 'dark'] as const
 
 export type SweepTheme = (typeof SWEEP_THEMES)[number]
 
+/** The layout directions that a sweep can set. */
+export const SWEEP_DIRECTIONS = ['ltr', 'rtl'] as const
+
+export type SweepDirection = (typeof SWEEP_DIRECTIONS)[number]
+
 /** The width of each thumbnail of a contact sheet, in px. */
 const THUMBNAIL_WIDTH = 240
 /** The cell of a screen with no screenshot, in px. */
@@ -34,7 +39,14 @@ export interface Scrolled {
 export interface SweepDriver {
   look(): Promise<DeviceLook>
   /** With `cold`, the app is stopped, and the open starts it. */
-  open(url: string, cold: boolean): Promise<void>
+  /**
+   * With `cold`, the app is stopped, and the open starts it; with
+   * `direction`, a cold open waits until the app shows that direction.
+   */
+  open(
+    url: string,
+    options: { cold: boolean; direction?: SweepDirection },
+  ): Promise<void>
   /** Stops the app, so the next open starts it again. */
   reload(): Promise<void>
   /** Turns the screen when it isn't in this orientation. */
@@ -53,9 +65,14 @@ export interface SweepDriver {
    */
   scroll(): Promise<Scrolled | undefined>
   /** Puts back what the sweep changed. Gives a warning for what stays. */
+  /**
+   * Sets the layout direction of the app. Gives `restarted` when the app
+   * stopped for it, so the next open starts it.
+   */
+  setDirection(direction: SweepDirection): Promise<{ restarted: boolean }>
   restore(
     look: DeviceLook,
-    changed: { orientation: boolean; theme: boolean },
+    changed: { orientation: boolean; theme: boolean; direction: boolean },
   ): Promise<string[]>
 }
 
@@ -74,6 +91,8 @@ export interface SweepInput {
    * starts it again: stacked screens slow the app down.
    */
   reloadEvery?: number
+  /** Left out: only the direction that the app has, and loupe sets nothing. */
+  directions?: readonly SweepDirection[]
 }
 
 export const sweepScreenSchema = z.object({
@@ -83,7 +102,11 @@ export const sweepScreenSchema = z.object({
       'The place of the link in the list, from 1: the number of its cell on each contact sheet, and of its screenshot file.',
     ),
   url: z.string(),
-  variant: z.string().describe('The orientation and the theme: portrait-dark.'),
+  variant: z
+    .string()
+    .describe(
+      'The orientation and the theme, and the direction in a sweep with directions: portrait-dark, portrait-dark-rtl.',
+    ),
   scrolled: z
     .boolean()
     .describe(
@@ -121,9 +144,17 @@ export const sweepScreenSchema = z.object({
 export type SweepScreen = z.infer<typeof sweepScreenSchema>
 
 export const sweepVariantSchema = z.object({
-  name: z.string().describe('The orientation and the theme: portrait-dark.'),
+  name: z
+    .string()
+    .describe(
+      'The orientation and the theme, and the direction in a sweep with directions: portrait-dark, portrait-dark-rtl.',
+    ),
   orientation: z.enum(ORIENTATIONS),
   theme: z.string().describe('light or dark, or the setting of the device.'),
+  direction: z
+    .enum(SWEEP_DIRECTIONS)
+    .optional()
+    .describe('ltr or rtl. Left out in a sweep with no directions.'),
   sheet: z
     .string()
     .describe(
@@ -257,11 +288,13 @@ function outcomeOf(screen: SweepScreen): string {
 }
 
 /**
- * Opens each link in each variant (orientation × theme), waits until the
+ * Opens each link in each variant (direction × orientation × theme), waits until the
  * screen keeps still, runs the rules and keeps the screenshot. With
  * `scroll`, it also checks each screen after one scroll down, then
  * scrolls back. With `reloadEvery`, it stops the app before each N-th
- * link that it opens, over all the variants. A screen that loupe can't open or check gets its error in
+ * link that it opens, over all the variants. With `directions`, it sets
+ * each direction once, before its variants, and puts it back at the end.
+ * A screen that loupe can't open or check gets its error in
  * the report, and the sweep goes on. At the end it writes the contact
  * sheets of each variant and `report.json`, and puts the orientation and
  * the theme back.
@@ -272,7 +305,15 @@ function outcomeOf(screen: SweepScreen): string {
  */
 export async function sweep(
   driver: SweepDriver,
-  { urls, orientations, themes, out, scroll, reloadEvery }: SweepInput,
+  {
+    urls,
+    orientations,
+    themes,
+    out,
+    scroll,
+    reloadEvery,
+    directions,
+  }: SweepInput,
   { signal, progress }: Pick<CommandContext, 'signal' | 'progress'> = {},
 ): Promise<SweepReport> {
   const folder = path.resolve(out)
@@ -282,114 +323,137 @@ export async function sweep(
   const warnings: string[] = []
   const orientationList = orientations ?? [start.orientation]
   const themeList = themes ?? [start.theme]
-  const total = urls.length * orientationList.length * themeList.length
+  const directionList: (SweepDirection | undefined)[] = directions
+    ? [...directions]
+    : [undefined]
+  const total =
+    urls.length *
+    orientationList.length *
+    themeList.length *
+    directionList.length
   let done = 0
   let opens = 0
+  let coldNext = false
 
   try {
-    for (const orientation of orientationList) {
-      for (const theme of themeList) {
-        const name = `${orientation}-${theme}`
-        const topCells: Cell[] = []
-        const scrolledCells: Cell[] = []
-        let count = 0
-        let failed = 0
+    for (const direction of directionList) {
+      if (direction) {
+        const { restarted } = await driver.setDirection(direction)
+        if (restarted) coldNext = true
+      }
+      for (const orientation of orientationList) {
+        for (const theme of themeList) {
+          const name = direction
+            ? `${orientation}-${theme}-${direction}`
+            : `${orientation}-${theme}`
+          const topCells: Cell[] = []
+          const scrolledCells: Cell[] = []
+          let count = 0
+          let failed = 0
 
-        const keep = async (
-          screen: SweepScreen,
-          png: Buffer | undefined,
-          began: number,
-        ) => {
-          if (png) {
-            const file = `${fileNumber(screen.number, urls.length)}${screen.scrolled ? '-scrolled' : ''}.png`
-            screen.screenshot = await writeOutputFile(
-              path.join(folder, name, file),
-              png,
+          const keep = async (
+            screen: SweepScreen,
+            png: Buffer | undefined,
+            began: number,
+          ) => {
+            if (png) {
+              const file = `${fileNumber(screen.number, urls.length)}${screen.scrolled ? '-scrolled' : ''}.png`
+              screen.screenshot = await writeOutputFile(
+                path.join(folder, name, file),
+                png,
+              )
+            }
+            screen.ms = Date.now() - began
+            screens.push(screen)
+            count += 1
+            if (!screen.passed) failed += 1
+
+            const image = thumbnailOf(png)
+            const { number } = screen
+            const cells = screen.scrolled ? scrolledCells : topCells
+            cells.push(
+              image
+                ? { number, image, failed: !screen.passed }
+                : { number, failed: true },
             )
           }
-          screen.ms = Date.now() - began
-          screens.push(screen)
-          count += 1
-          if (!screen.passed) failed += 1
 
-          const image = thumbnailOf(png)
-          const { number } = screen
-          const cells = screen.scrolled ? scrolledCells : topCells
-          cells.push(
-            image
-              ? { number, image, failed: !screen.passed }
-              : { number, failed: true },
-          )
-        }
-
-        for (const [index, url] of urls.entries()) {
-          if (signal?.aborted) {
-            throw new LoupeError(
-              'cancelled',
-              `The call was cancelled, so loupe stopped the sweep after ${done} of ${total} screens. The screenshots so far are in ${folder}; it wrote no report.`,
-            )
-          }
-          const reload =
-            reloadEvery !== undefined && opens > 0 && opens % reloadEvery === 0
-          opens += 1
-          const screenOf = (scrolled: boolean): SweepScreen => ({
-            number: index + 1,
-            url,
-            variant: name,
-            scrolled,
-            reloaded: reload && !scrolled,
-            passed: false,
-            warnings: [],
-            ms: 0,
-          })
-
-          const opened = Date.now()
-          const top = screenOf(false)
-          const png = await checkScreen(driver, top, async () => {
-            if (reload) await driver.reload()
-            await driver.open(url, reload)
-            if (orientations) await driver.rotate(orientation)
-            if (themes) {
-              top.warnings.push(...(await driver.setTheme(theme as SweepTheme)))
+          for (const [index, url] of urls.entries()) {
+            if (signal?.aborted) {
+              throw new LoupeError(
+                'cancelled',
+                `The call was cancelled, so loupe stopped the sweep after ${done} of ${total} screens. The screenshots so far are in ${folder}; it wrote no report.`,
+              )
             }
-          })
-          await keep(top, png, opened)
+            const reload =
+              reloadEvery !== undefined &&
+              opens > 0 &&
+              opens % reloadEvery === 0
+            opens += 1
+            const cold = reload || coldNext
+            coldNext = false
+            const screenOf = (scrolled: boolean): SweepScreen => ({
+              number: index + 1,
+              url,
+              variant: name,
+              scrolled,
+              reloaded: reload && !scrolled,
+              passed: false,
+              warnings: [],
+              ms: 0,
+            })
 
-          let below: SweepScreen | undefined
-          if (scroll && !top.error) {
-            const began = Date.now()
-            const screen = screenOf(true)
-            const shown = await checkScrolled(driver, screen)
-            if (shown) {
-              await keep(screen, shown.png, began)
-              below = screen
-            }
-          }
-
-          done += 1
-          progress?.({
-            progress: done,
-            total,
-            message: `${name}, link ${index + 1} of ${urls.length}${reload ? ', after a restart' : ''}: ${outcomeOf(top)}${below ? `; scrolled: ${outcomeOf(below)}` : ''}`,
-          })
-        }
-
-        variants.push({
-          name,
-          orientation,
-          theme,
-          sheet: await writeSheet(path.join(folder, `${name}.png`), topCells),
-          ...(scrolledCells.length > 0
-            ? {
-                scrolledSheet: await writeSheet(
-                  path.join(folder, `${name}-scrolled.png`),
-                  scrolledCells,
-                ),
+            const opened = Date.now()
+            const top = screenOf(false)
+            const png = await checkScreen(driver, top, async () => {
+              if (reload) await driver.reload()
+              await driver.open(url, { cold, direction })
+              if (orientations) await driver.rotate(orientation)
+              if (themes) {
+                top.warnings.push(
+                  ...(await driver.setTheme(theme as SweepTheme)),
+                )
               }
-            : {}),
-          screens: count,
-          failed,
-        })
+            })
+            await keep(top, png, opened)
+
+            let below: SweepScreen | undefined
+            if (scroll && !top.error) {
+              const began = Date.now()
+              const screen = screenOf(true)
+              const shown = await checkScrolled(driver, screen)
+              if (shown) {
+                await keep(screen, shown.png, began)
+                below = screen
+              }
+            }
+
+            done += 1
+            progress?.({
+              progress: done,
+              total,
+              message: `${name}, link ${index + 1} of ${urls.length}${reload ? ', after a restart' : ''}: ${outcomeOf(top)}${below ? `; scrolled: ${outcomeOf(below)}` : ''}`,
+            })
+          }
+
+          variants.push({
+            name,
+            orientation,
+            theme,
+            ...(direction ? { direction } : {}),
+            sheet: await writeSheet(path.join(folder, `${name}.png`), topCells),
+            ...(scrolledCells.length > 0
+              ? {
+                  scrolledSheet: await writeSheet(
+                    path.join(folder, `${name}-scrolled.png`),
+                    scrolledCells,
+                  ),
+                }
+              : {}),
+            screens: count,
+            failed,
+          })
+        }
       }
     }
   } finally {
@@ -397,6 +461,7 @@ export async function sweep(
       ...(await driver.restore(start, {
         orientation: orientations !== undefined,
         theme: themes !== undefined,
+        direction: directions !== undefined,
       })),
     )
   }

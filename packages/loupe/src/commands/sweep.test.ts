@@ -1,4 +1,4 @@
-import { mkdtempSync, readFileSync, rmSync } from 'node:fs'
+import { existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { afterAll, describe, expect, it } from 'vitest'
@@ -6,8 +6,17 @@ import { run } from '../cli/run'
 import { pngSize } from '../core/png'
 import { runCommand } from '../core/run-command'
 import { sweepReportSchema } from '../core/sweep'
+import { RECORD_PATH } from '../expo/app-config'
 import { byCommand, fakeContext } from '../testing/fake-exec'
+import { fakeFetch } from '../testing/fake-fetch'
+import {
+  liveManifest,
+  PROBE_APP_JSON,
+  removeExpoProjects,
+  tempExpoProject,
+} from '../testing/expo-project'
 import { recorded } from '../testing/fixtures'
+import { metroRoutes } from '../testing/metro'
 import { registry } from './index'
 import { sweepCommand } from './sweep'
 
@@ -15,6 +24,7 @@ const ADB = 'adb -s emulator-5554'
 const STEP = 'api-36/check/ltr/rotation-0'
 const out = mkdtempSync(path.join(tmpdir(), 'loupe-sweep-command-'))
 afterAll(() => rmSync(out, { recursive: true, force: true }))
+afterAll(removeExpoProjects)
 
 const link = (name: string) => `exp://127.0.0.1:8081/--/${name}`
 
@@ -52,6 +62,49 @@ function emulator() {
     }
     return fixed(call)
   })
+}
+
+/**
+ * The probe app in Expo Go in landscape-left (round 6, API 36), with the
+ * Metro of the project in `root`: each read shows the RTL screen while the
+ * app.json of the project forces RTL, else the LTR one.
+ */
+function expoGoEmulator(root: string) {
+  let shown = ''
+  const folder = () => {
+    const config = JSON.parse(readFileSync(path.join(root, 'app.json'), 'utf8'))
+    const rtl = config.expo.extra?.forcesRTL === true
+    return `api-36/check/${rtl ? 'rtl' : 'ltr'}/rotation-1`
+  }
+  const fixed = byCommand({
+    'adb devices -l': recorded('api-36/host/adb-devices-l.txt'),
+    [`${ADB} shell getprop`]: recorded('api-36/device/getprop.txt'),
+    [`${ADB} shell cmd uimode night`]: recorded(
+      'api-36/probe/device/uimode-night-at-start.txt',
+    ),
+    [`${ADB} shell am force-stop host.exp.exponent`]: {},
+    [`${ADB} shell pidof host.exp.exponent`]: { code: 1 },
+  })
+  const { context, calls } = fakeContext((call) => {
+    const args = call.args.slice(2).join(' ')
+    const opened = /^shell am start .* -d '.*\/--\/(\S+)'( -p \S+)?$/.exec(args)
+    if (opened) {
+      shown = opened[1]?.replace('/', '-') ?? ''
+      return recorded('api-36/extra/am-start-https.txt')
+    }
+    if (args === 'shell dumpsys window displays') {
+      return recorded(`${folder()}/dumpsys-window-displays.txt`)
+    }
+    if (args === 'exec-out uiautomator dump /dev/tty') {
+      return recorded(`${folder()}/${shown}.ui-tty.txt`)
+    }
+    if (args === 'exec-out screencap -p') {
+      return recorded(`${folder()}/${shown}.png`)
+    }
+    return fixed(call)
+  })
+  const { fetch } = fakeFetch({ ...metroRoutes(), '/': liveManifest(root) })
+  return { context: { ...context, fetch }, calls }
 }
 
 async function swept(input: object) {
@@ -161,7 +214,7 @@ describe('sweep', { timeout: 30_000 }, () => {
   })
 
   it.each([
-    [{ rules: 'mirrored' }, 'A sweep runs in one layout direction'],
+    [{ rules: 'mirrored' }, 'A sweep checks each screen on its own'],
     [{ orientation: 'portrait,sideways' }, '"sideways" isn\'t an orientation'],
     [{ theme: 'auto' }, '"auto" isn\'t a theme. Use: light, dark.'],
   ])('refuses %o before it opens a link', async (input, message) => {
@@ -261,6 +314,69 @@ describe('sweep', { timeout: 30_000 }, () => {
       false,
       true,
     ])
+  })
+
+  it('checks each link in LTR, then in RTL, and puts app.json back', async () => {
+    const root = tempExpoProject()
+    const folder = path.join(out, 'directions')
+    const { context, calls } = expoGoEmulator(root)
+
+    const result = await runCommand(
+      registry,
+      'sweep',
+      {
+        url: [link('centred/defect'), link('centred/fixed')],
+        app: 'host.exp.exponent',
+        direction: 'ltr,rtl',
+        out: folder,
+      },
+      context,
+    )
+
+    expect(result.ok).toBe(true)
+    const report = sweepReportSchema.parse(
+      JSON.parse(readFileSync(path.join(folder, 'report.json'), 'utf8')),
+    )
+    expect(
+      report.variants.map(({ name, direction }) => [name, direction]),
+    ).toEqual([
+      ['landscape-left-light-ltr', 'ltr'],
+      ['landscape-left-light-rtl', 'rtl'],
+    ])
+    expect(report.screens).toHaveLength(4)
+    expect(report.screens.filter((screen) => screen.error)).toEqual([])
+    expect(report.warnings).toEqual([])
+    expect(readFileSync(path.join(root, 'app.json'), 'utf8')).toBe(
+      PROBE_APP_JSON,
+    )
+    expect(existsSync(path.join(root, RECORD_PATH))).toBe(false)
+    // One stop for RTL, one for the way back.
+    expect(
+      calls.filter((call) => call.args.includes('force-stop')),
+    ).toHaveLength(2)
+  })
+
+  it('needs the app in Expo Go for direction', async () => {
+    const { context } = emulator()
+
+    const result = await runCommand(
+      registry,
+      'sweep',
+      {
+        url: [link('centred/defect')],
+        app: 'com.example.app',
+        direction: 'rtl',
+      },
+      context,
+    )
+
+    expect(result).toMatchObject({
+      ok: false,
+      error: {
+        code: 'invalid_input',
+        message: expect.stringContaining('direction needs the app in Expo Go'),
+      },
+    })
   })
 
   it('needs app for reloadEvery', async () => {

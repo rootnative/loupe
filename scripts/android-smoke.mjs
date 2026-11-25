@@ -1110,6 +1110,65 @@ function checkExpoReload() {
   if (!reloaded.ok) keepScreen('expo-reload.png')
 }
 
+/**
+ * `sweep --direction ltr,rtl` on the centred pattern in portrait: 4 screens
+ * with no error in 2 variants, one per direction; loupe switches app.json
+ * to RTL and back. At the end app.json is as before, byte for byte, with no
+ * record, and the probe app shows LTR again.
+ */
+function checkSweepDirection() {
+  const folder = path.join(out, 'sweep-direction')
+  const appJsonFile = path.join(PROBE_APP, 'app.json')
+  const record = path.join(PROBE_APP, '.expo', 'loupe-rtl.json')
+  const appJson = readFileSync(appJsonFile, 'utf8')
+  const link = (variant) => `exp://127.0.0.1:${PORT}/--/centred/${variant}`
+  const swept = loupe(
+    'sweep',
+    '--url',
+    link('defect'),
+    '--url',
+    link('fixed'),
+    '--direction',
+    'ltr,rtl',
+    '--port',
+    String(PORT),
+    '--out',
+    folder,
+    '--app',
+    EXPO_GO,
+  )
+  let report
+  try {
+    report = JSON.parse(readFileSync(path.join(folder, 'report.json'), 'utf8'))
+  } catch {
+    report = undefined
+  }
+  const screens = report?.screens ?? []
+  const variants = (report?.variants ?? []).map(
+    ({ name, direction }) => `${name}:${direction}`,
+  )
+  const after = loupe('ui', '--app', EXPO_GO).data?.probe
+  const passed =
+    swept.data !== undefined &&
+    screens.length === 4 &&
+    screens.every(({ error }) => !error) &&
+    (report.variants ?? []).map(({ direction }) => direction).join() ===
+      'ltr,rtl' &&
+    report.variants.every(
+      ({ name, direction }) =>
+        name.startsWith('portrait-') && name.endsWith(`-${direction}`),
+    ) &&
+    report.warnings.length === 0 &&
+    readFileSync(appJsonFile, 'utf8') === appJson &&
+    !existsSync(record) &&
+    after?.direction === 'ltr'
+  check(
+    passed,
+    `sweep --direction ltr,rtl: 4 screens in ${variants.join(', ') || swept.error?.code}; ${screens.map(({ number, variant, error, passed: ok, ms }) => `${number} ${variant.split('-').pop()} ${error?.code ?? (ok ? 'passed' : 'failed')} ${ms} ms`).join(', ')}; app.json back, no record, then ${after?.direction ?? 'no probe'}`,
+  )
+  if (!passed) keepScreen('sweep-direction.png')
+}
+
 /** The status lines of the probe app on /sheets. */
 function sheetStatus() {
   const nodes = loupe('ui', '--app', EXPO_GO).data?.nodes ?? []
@@ -1499,6 +1558,7 @@ const metro = startMetro(path.join(out, 'metro.log'))
 try {
   const ltr = await checkProbeApp(metro)
   if (ltr) checkGateRtl(ltr)
+  checkSweepDirection()
 } catch (error) {
   check(false, `probe app: ${error instanceof Error ? error.message : error}`)
   keepScreen('probe-app-error.png')

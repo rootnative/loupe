@@ -107,7 +107,10 @@ A sweep writes `loupe-sweep/report.json`, a screenshot of each screen, and a
 contact sheet of each variant. A red frame on the contact sheet marks a
 screen that failed. At the end, loupe puts the orientation and the theme
 back. For a long list, `--reload-every 10` stops the app before each 10th
-link, so stacked screens don't slow it down.
+link, so stacked screens don't slow it down. In Expo Go,
+`--direction ltr,rtl` checks each screen in both layout directions: loupe
+sets each one in `app.json`, as `expo-rtl` does, and puts the file back at
+the end.
 
 ## The output
 
@@ -178,9 +181,10 @@ loupe takes the safe area from Android.
   app is in front, so it never shows another app to your agent.
 - loupe makes no call over the network. It talks to the device through adb,
   and the Expo commands talk to Metro on this machine (127.0.0.1) only.
-- `expo-rtl` is the one command that writes in your project: `on` edits
-  `app.json` and keeps the file as it was in `.expo/loupe-rtl.json`, and
-  `off` puts it back.
+- `expo-rtl` and `sweep --direction` are the only commands that write in
+  your project: they edit `app.json`, keep the file as it was in
+  `.expo/loupe-rtl.json`, and put it back (`expo-rtl off`, or the end of
+  the sweep).
 
 ## License
 

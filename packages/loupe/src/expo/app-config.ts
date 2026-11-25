@@ -125,6 +125,27 @@ async function writeRecord(file: string, record: RtlRecord): Promise<void> {
   await writeFile(file, `${JSON.stringify(record, null, 2)}\n`)
 }
 
+/**
+ * The app.json of the app in `projectRoot`, and its text. With none:
+ * `unsupported`, with the two lines to add (`on`) or to remove (`off`).
+ */
+export async function requireAppJson(
+  projectRoot: string,
+  mode: RtlMode,
+  dynamicConfigPath?: string,
+): Promise<{ file: string; text: string }> {
+  const file = path.resolve(projectRoot, 'app.json')
+  const text = await readText(file)
+  if (text === undefined) {
+    const config = dynamicConfigPath?.split(/[\\/]/).pop() ?? 'app.config.js'
+    throw new LoupeError(
+      'unsupported',
+      `loupe edits only app.json, and ${projectRoot} has none. Ask the user to ${mode === 'on' ? 'add "supportsRTL: true" and "forcesRTL: true" to' : 'remove "supportsRTL" and "forcesRTL" from'} the extra of ${config}, then run expo-reload.`,
+    )
+  }
+  return { file, text }
+}
+
 export interface RtlChange {
   /** app.json, as an absolute path. */
   file: string
@@ -148,16 +169,12 @@ export async function setRtl(
   mode: RtlMode,
   dynamicConfigPath?: string,
 ): Promise<RtlChange> {
-  const file = path.resolve(projectRoot, 'app.json')
+  const { file, text } = await requireAppJson(
+    projectRoot,
+    mode,
+    dynamicConfigPath,
+  )
   const recordFile = path.resolve(projectRoot, RECORD_PATH)
-  const text = await readText(file)
-  if (text === undefined) {
-    const config = dynamicConfigPath?.split(/[\\/]/).pop() ?? 'app.config.js'
-    throw new LoupeError(
-      'unsupported',
-      `loupe edits only app.json, and ${projectRoot} has none. Ask the user to ${mode === 'on' ? 'add "supportsRTL: true" and "forcesRTL: true" to' : 'remove "supportsRTL" and "forcesRTL" from'} the extra of ${config}, then run expo-reload.`,
-    )
-  }
   const record = await readRecord(recordFile)
 
   let next = text

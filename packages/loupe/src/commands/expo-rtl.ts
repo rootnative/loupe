@@ -2,13 +2,9 @@ import { z } from 'zod'
 import { defineCommand } from '../core/command'
 import { deviceField } from '../core/device'
 import { LoupeError } from '../core/errors'
-import { RECORD_PATH, type RtlChange, setRtl } from '../expo/app-config'
-import {
-  DEFAULT_PORT,
-  portField,
-  readExpoApp,
-  untilManifestRtl,
-} from '../expo/metro'
+import { RECORD_PATH, type RtlChange } from '../expo/app-config'
+import { DEFAULT_PORT, portField } from '../expo/metro'
+import { directionOf, switchRtl } from '../expo/rtl'
 import {
   describeShown,
   type Shown,
@@ -51,28 +47,8 @@ export const expoRtlCommand = defineCommand({
       shown = await showApp(context, input, {
         reload: true,
         prepare: async () => {
-          const app = await readExpoApp(context, port)
-          if (!app.projectRoot) {
-            throw new LoupeError(
-              'unsupported',
-              "The manifest of Metro gives no folder of the app, so loupe can't find app.json.",
-            )
-          }
-          const change = await setRtl(
-            app.projectRoot,
-            rtl,
-            app.dynamicConfigPath,
-          )
-          try {
-            await untilManifestRtl(context, port, change.forces, input.timeout)
-          } catch (error) {
-            await change.undo()
-            throw error
-          }
-          state.change = change
-          // forcesRTL decides. With supportsRTL alone, the device language does.
-          if (change.forces) return 'rtl'
-          return change.supports ? undefined : 'ltr'
+          state.change = await switchRtl(context, port, rtl, input.timeout)
+          return directionOf(state.change)
         },
       })
     } catch (error) {
