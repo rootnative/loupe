@@ -5,6 +5,7 @@ import {
   expoLink,
   hasAppContent,
   normalRoute,
+  routeOfLink,
   sdkWarning,
 } from './expo-go'
 
@@ -73,6 +74,21 @@ describe('hasAppContent', () => {
         ]),
       ]),
     ).toBe(false)
+  })
+})
+
+describe('routeOfLink', () => {
+  it.each([
+    ['exp://127.0.0.1:8081/--/centred/defect', '/centred/defect'],
+    ['exp://127.0.0.1:8081/--/settings?tab=1', '/settings'],
+    ['exp://127.0.0.1:8081', '/'],
+    ['exps://u.expo.dev/abc/--/home/', '/home'],
+  ])('gives the route of %s', (link, route) => {
+    expect(routeOfLink(link)).toBe(route)
+  })
+
+  it('gives none for a link that is not for Expo Go', () => {
+    expect(routeOfLink('https://example.com/--/a')).toBeUndefined()
   })
 })
 

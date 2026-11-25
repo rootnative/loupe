@@ -2,9 +2,12 @@ import { type RuleName } from '../../core/check'
 import { LoupeError } from '../../core/errors'
 import { type SweepDriver } from '../../core/sweep'
 import { DEFAULT_WAIT_INTERVAL, notStill } from '../../core/wait'
+import { EXPO_GO, routeOfLink } from '../../expo/expo-go'
+import { forceStopAndroid } from './app-switch'
 import { checkAndroid } from './check'
 import { type AndroidTarget } from './devices'
 import { readAndroidDisplay, rotateAndroid } from './display'
+import { showInExpoGo } from './expo'
 import { openUrlAndroid } from './open-url'
 import { captureAndroid } from './screenshot'
 import { flingToTopAndroid, scrollOnceAndroid } from './scroll'
@@ -21,6 +24,8 @@ export interface SweepTiming {
   waitTimeout: number
   /** Milliseconds to wait for the screen to turn. Default: 5000. */
   rotateTimeout?: number
+  /** Milliseconds for Expo Go to show the app after a restart. Default: 120000. */
+  coldTimeout?: number
 }
 
 /** The message of a failed restore, as a warning. */
@@ -43,15 +48,34 @@ export function androidSweepDriver(
   target: AndroidTarget,
   app: string | undefined,
   rules: readonly RuleName[],
-  { waitTimeout, rotateTimeout = 5000 }: SweepTiming,
+  { waitTimeout, rotateTimeout = 5000, coldTimeout = 120_000 }: SweepTiming,
 ): SweepDriver {
   return {
     look: async () => ({
       orientation: (await readAndroidDisplay(target)).orientation,
       theme: await readThemeAndroid(target),
     }),
-    open: async (url) => {
+    open: async (url, cold) => {
+      // A cold Expo Go shows its loading screen, can lose the link, and the
+      // app can show its first route before the one of the link.
+      if (cold && app === EXPO_GO) {
+        await showInExpoGo(target, {
+          link: url,
+          route: routeOfLink(url),
+          timeout: coldTimeout,
+        })
+        return
+      }
       await openUrlAndroid(target, url, app)
+    },
+    reload: async () => {
+      if (!app) {
+        throw new LoupeError(
+          'invalid_input',
+          'A sweep with reloadEvery needs app: the package that loupe stops.',
+        )
+      }
+      await forceStopAndroid(target, app)
     },
     rotate: async (orientation) => {
       if ((await readAndroidDisplay(target)).orientation === orientation) return

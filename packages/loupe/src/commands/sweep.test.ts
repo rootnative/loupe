@@ -37,11 +37,13 @@ function emulator() {
   })
   return fakeContext((call) => {
     const args = call.args.slice(2).join(' ')
-    const opened = /^shell am start .* -d '.*\/--\/(\S+)'$/.exec(args)
+    const opened = /^shell am start .* -d '.*\/--\/(\S+)'( -p \S+)?$/.exec(args)
     if (opened) {
       shown = opened[1]?.replace('/', '-') ?? ''
       return recorded('api-36/extra/am-start-https.txt')
     }
+    if (args === 'shell am force-stop host.exp.exponent') return {}
+    if (args === 'shell pidof host.exp.exponent') return { code: 1 }
     if (args === 'exec-out uiautomator dump /dev/tty') {
       return recorded(`${STEP}/${shown}.ui-tty.txt`)
     }
@@ -231,6 +233,55 @@ describe('sweep', { timeout: 30_000 }, () => {
     ).toEqual([])
   })
 
+  it('stops Expo Go before each N-th link, and opens the link cold', async () => {
+    const folder = path.join(out, 'reload')
+    const { data, calls } = await swept({
+      url: [link('centred/defect'), link('centred/fixed')],
+      app: 'host.exp.exponent',
+      reloadEvery: 1,
+      out: folder,
+    })
+
+    const args = calls.map((call) => call.args.slice(2).join(' '))
+    const stop = args.indexOf('shell am force-stop host.exp.exponent')
+    const opens = args
+      .map((arg, at) => (arg.startsWith('shell am start') ? at : -1))
+      .filter((at) => at >= 0)
+    expect(opens).toHaveLength(2)
+    expect(stop).toBeGreaterThan(opens[0] ?? Infinity)
+    expect(stop).toBeLessThan(opens[1] ?? -1)
+    expect(data).toMatchObject({
+      failed: 1,
+      failures: [{ number: 1, reloaded: false, rules: ['centred'] }],
+    })
+    const report = sweepReportSchema.parse(
+      JSON.parse(readFileSync(path.join(folder, 'report.json'), 'utf8')),
+    )
+    expect(report.screens.map((screen) => screen.reloaded)).toEqual([
+      false,
+      true,
+    ])
+  })
+
+  it('needs app for reloadEvery', async () => {
+    const { context } = emulator()
+
+    const result = await runCommand(
+      registry,
+      'sweep',
+      { url: [link('centred/defect')], reloadEvery: 5 },
+      context,
+    )
+
+    expect(result).toMatchObject({
+      ok: false,
+      error: {
+        code: 'invalid_input',
+        message: expect.stringContaining('reloadEvery needs app'),
+      },
+    })
+  })
+
   it('names a scrolled screen and its contact sheet in the summary', () => {
     const result = sweepCommand.output.parse({
       out: '/tmp/s',
@@ -255,6 +306,7 @@ describe('sweep', { timeout: 30_000 }, () => {
           url: 'app://a',
           variant: 'portrait-light',
           scrolled: true,
+          reloaded: false,
           rules: ['touch-target'],
           findings: [
             {
@@ -273,6 +325,7 @@ describe('sweep', { timeout: 30_000 }, () => {
           url: 'app://b',
           variant: 'portrait-light',
           scrolled: false,
+          reloaded: true,
           rules: [],
           findings: [],
           error: { code: 'timeout', message: 'The screen kept moving.' },
@@ -289,7 +342,7 @@ describe('sweep', { timeout: 30_000 }, () => {
       [
         '  1 portrait-light scrolled app://a: touch-target',
         '    touch-target: label "Close" is 24 × 24 dp.',
-        '  2 portrait-light app://b: timeout: The screen kept moving.',
+        '  2 portrait-light after a restart app://b: timeout: The screen kept moving.',
       ].join('\n'),
     )
     expect(sweepCommand.images?.(result)).toEqual([

@@ -106,7 +106,8 @@ npx @rootnative/loupe sweep \
 A sweep writes `loupe-sweep/report.json`, a screenshot of each screen, and a
 contact sheet of each variant. A red frame on the contact sheet marks a
 screen that failed. At the end, loupe puts the orientation and the theme
-back.
+back. For a long list, `--reload-every 10` stops the app before each 10th
+link, so stacked screens don't slow it down.
 
 ## The output
 

@@ -375,6 +375,7 @@ async function checkProbeApp(metro) {
   )
   loupe('rotate', 'portrait')
   checkSweep()
+  checkSweepReload()
   checkSweepScroll()
   checkOverlay()
   checkOverlayDismiss()
@@ -387,6 +388,52 @@ async function checkProbeApp(metro) {
   checkExpoReload()
   await checkSheets()
   return ltr
+}
+
+/**
+ * `sweep --reload-every 2` on 3 links: loupe stops Expo Go before the third
+ * link, opens it cold, and checks it as the others: the defect fails
+ * `centred` on links 1 and 3, the fixed twin passes, no screen error.
+ */
+function checkSweepReload() {
+  const folder = path.join(out, 'sweep-reload')
+  const link = (variant) => `exp://127.0.0.1:${PORT}/--/centred/${variant}`
+  const swept = loupe(
+    'sweep',
+    '--url',
+    link('defect'),
+    '--url',
+    link('fixed'),
+    '--url',
+    link('defect'),
+    '--reload-every',
+    '2',
+    '--out',
+    folder,
+    '--app',
+    EXPO_GO,
+  )
+  const failures = swept.data?.failures ?? []
+  let report
+  try {
+    report = JSON.parse(readFileSync(path.join(folder, 'report.json'), 'utf8'))
+  } catch {
+    report = undefined
+  }
+  const screens = report?.screens ?? []
+  const passed =
+    swept.exit === 1 &&
+    screens.length === 3 &&
+    screens.map(({ reloaded }) => reloaded).join() === 'false,false,true' &&
+    screens.every(({ error }) => !error) &&
+    failures.map(({ number }) => number).join() === '1,3' &&
+    failures.every(({ rules }) => rules.includes('centred')) &&
+    swept.data.warnings.length === 0
+  check(
+    passed,
+    `sweep --reload-every 2: link 3 after a restart, checked as link 1 (exit ${swept.exit}; ${screens.map(({ number, reloaded, passed: ok, error, ms }) => `${number}${reloaded ? ' restarted' : ''} ${error?.code ?? (ok ? 'passed' : 'failed')} ${ms} ms`).join(', ') || swept.error?.code})`,
+  )
+  if (!passed) keepScreen('sweep-reload.png')
 }
 
 /**

@@ -72,6 +72,8 @@ interface Script {
   scrollErrors?: Record<string, LoupeError>
   /** What the scroll back gives: warnings, or an error. */
   back?: string[] | LoupeError
+  /** The error of each restart. */
+  reloadError?: LoupeError
 }
 
 function fakeDriver(
@@ -84,6 +86,7 @@ function fakeDriver(
     defectsBelow = [],
     scrollErrors = {},
     back = [],
+    reloadError,
   }: Script = {},
   start: DeviceLook = { orientation: 'portrait', theme: 'light' },
 ) {
@@ -93,9 +96,13 @@ function fakeDriver(
   let below = false
   const driver: SweepDriver = {
     look: async () => ({ ...start }),
-    open: async (link) => {
+    open: async (link, cold) => {
       url = link
-      calls.push(`open ${link}`)
+      calls.push(`open ${link}${cold ? ' cold' : ''}`)
+    },
+    reload: async () => {
+      calls.push('reload')
+      if (reloadError) throw reloadError
     },
     rotate: async (orientation) => {
       if (look.orientation !== orientation) calls.push(`rotate ${orientation}`)
@@ -475,6 +482,63 @@ describe('sweep', () => {
 })
 
 describe('sweep, progress and cancel', () => {
+  it('stops the app before each N-th link, over the variants', async () => {
+    const C = 'app://c'
+    const { driver, calls } = fakeDriver()
+
+    const report = await sweep(driver, {
+      urls: [A, B, C],
+      orientations: ['portrait', 'landscape-left'],
+      out: path.join(out, 'reload'),
+      reloadEvery: 2,
+    })
+
+    expect(calls).toEqual([
+      `open ${A}`,
+      `open ${B}`,
+      'reload',
+      `open ${C} cold`,
+      `open ${A}`,
+      'rotate landscape-left',
+      'reload',
+      `open ${B} cold`,
+      `open ${C}`,
+      'restore portrait light true false',
+    ])
+    expect(report.screens.map((screen) => screen.reloaded)).toEqual([
+      false,
+      false,
+      true,
+      false,
+      true,
+      false,
+    ])
+  })
+
+  it('keeps a failed restart as the error of its screen, and goes on', async () => {
+    const { driver, calls } = fakeDriver({
+      reloadError: new LoupeError('tool_failed', 'am force-stop failed.'),
+    })
+
+    const report = await sweep(driver, {
+      urls: [A, B],
+      out: path.join(out, 'reload-error'),
+      reloadEvery: 1,
+    })
+
+    expect(calls).toEqual([
+      `open ${A}`,
+      'reload',
+      'restore portrait light false false',
+    ])
+    expect(report.screens[1]).toMatchObject({
+      url: B,
+      reloaded: true,
+      passed: false,
+      error: { code: 'tool_failed' },
+    })
+  })
+
   it('gives the progress after each link of each variant', async () => {
     const { driver } = fakeDriver({ defects: [B], scrolls: [A] })
     const updates: unknown[] = []

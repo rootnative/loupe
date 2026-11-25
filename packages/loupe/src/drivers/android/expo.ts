@@ -10,6 +10,7 @@ import {
   hasAppContent,
   normalRoute,
 } from '../../expo/expo-go'
+import { forceStopAndroid } from './app-switch'
 import { type AndroidTarget } from './devices'
 import { readWindowDisplay } from './display'
 import { isAppWindow, readInFront } from './foreground'
@@ -23,11 +24,6 @@ import { waitStillAndroid } from './wait'
 // and a second open 20 s later showed the app (round 10, API 35).
 const OPEN_AGAIN_MS = 20_000
 const READ_INTERVAL = 500
-// On API 36 the start after a force-stop was once warm, and Expo Go lost
-// the link until a second open (CI 45596256902). So the open waits until
-// the stopped process is gone.
-const STOP_LIMIT = 2000
-const STOP_INTERVAL = 100
 
 /** The version name of Expo Go on the device. With no Expo Go: `no_handler`. */
 export async function readExpoGoVersion(
@@ -48,25 +44,14 @@ export async function readExpoGoVersion(
 }
 
 /**
- * Stops Expo Go and the app in it, so the next open starts a new process.
- * Then it waits until `pidof` finds no process of Expo Go, for `limit` ms
- * at most.
+ * Stops Expo Go and the app in it, so the next open starts a new process,
+ * and waits until its process is gone (`forceStopAndroid`).
  */
-export async function forceStopExpoGo(
+export function forceStopExpoGo(
   target: AndroidTarget,
-  limit = STOP_LIMIT,
+  limit?: number,
 ): Promise<void> {
-  await target.adb.run(['shell', 'am', 'force-stop', EXPO_GO])
-  const start = Date.now()
-  while ((await expoGoRuns(target)) && Date.now() - start < limit) {
-    await sleep(STOP_INTERVAL)
-  }
-}
-
-/** True while `pidof` gives a process of Expo Go. It exits 1 with none. */
-async function expoGoRuns(target: AndroidTarget): Promise<boolean> {
-  const { stdout } = await target.adb.result(['shell', 'pidof', EXPO_GO])
-  return /\d/.test(stdout.toString('utf8'))
+  return forceStopAndroid(target, EXPO_GO, limit)
 }
 
 /** Gives the port of Metro on this machine to the device: `adb reverse`. */

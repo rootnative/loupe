@@ -33,7 +33,10 @@ export interface Scrolled {
 /** What a sweep needs from a device. Each call is for the app under test. */
 export interface SweepDriver {
   look(): Promise<DeviceLook>
-  open(url: string): Promise<void>
+  /** With `cold`, the app is stopped, and the open starts it. */
+  open(url: string, cold: boolean): Promise<void>
+  /** Stops the app, so the next open starts it again. */
+  reload(): Promise<void>
   /** Turns the screen when it isn't in this orientation. */
   rotate(orientation: Orientation): Promise<void>
   /** Sets the theme when it isn't this one. Gives its warnings. */
@@ -66,6 +69,11 @@ export interface SweepInput {
   out: string
   /** Also check each screen after one scroll down. */
   scroll?: boolean
+  /**
+   * Stops the app before each N-th link that the sweep opens, so the link
+   * starts it again: stacked screens slow the app down.
+   */
+  reloadEvery?: number
 }
 
 export const sweepScreenSchema = z.object({
@@ -80,6 +88,11 @@ export const sweepScreenSchema = z.object({
     .boolean()
     .describe(
       'True for the check after one scroll down. It comes right after the check of its link at the top.',
+    ),
+  reloaded: z
+    .boolean()
+    .describe(
+      'True when loupe stopped the app before this link, so the link started it again.',
     ),
   passed: z
     .boolean()
@@ -247,7 +260,8 @@ function outcomeOf(screen: SweepScreen): string {
  * Opens each link in each variant (orientation × theme), waits until the
  * screen keeps still, runs the rules and keeps the screenshot. With
  * `scroll`, it also checks each screen after one scroll down, then
- * scrolls back. A screen that loupe can't open or check gets its error in
+ * scrolls back. With `reloadEvery`, it stops the app before each N-th
+ * link that it opens, over all the variants. A screen that loupe can't open or check gets its error in
  * the report, and the sweep goes on. At the end it writes the contact
  * sheets of each variant and `report.json`, and puts the orientation and
  * the theme back.
@@ -258,7 +272,7 @@ function outcomeOf(screen: SweepScreen): string {
  */
 export async function sweep(
   driver: SweepDriver,
-  { urls, orientations, themes, out, scroll }: SweepInput,
+  { urls, orientations, themes, out, scroll, reloadEvery }: SweepInput,
   { signal, progress }: Pick<CommandContext, 'signal' | 'progress'> = {},
 ): Promise<SweepReport> {
   const folder = path.resolve(out)
@@ -270,6 +284,7 @@ export async function sweep(
   const themeList = themes ?? [start.theme]
   const total = urls.length * orientationList.length * themeList.length
   let done = 0
+  let opens = 0
 
   try {
     for (const orientation of orientationList) {
@@ -314,11 +329,15 @@ export async function sweep(
               `The call was cancelled, so loupe stopped the sweep after ${done} of ${total} screens. The screenshots so far are in ${folder}; it wrote no report.`,
             )
           }
+          const reload =
+            reloadEvery !== undefined && opens > 0 && opens % reloadEvery === 0
+          opens += 1
           const screenOf = (scrolled: boolean): SweepScreen => ({
             number: index + 1,
             url,
             variant: name,
             scrolled,
+            reloaded: reload && !scrolled,
             passed: false,
             warnings: [],
             ms: 0,
@@ -327,7 +346,8 @@ export async function sweep(
           const opened = Date.now()
           const top = screenOf(false)
           const png = await checkScreen(driver, top, async () => {
-            await driver.open(url)
+            if (reload) await driver.reload()
+            await driver.open(url, reload)
             if (orientations) await driver.rotate(orientation)
             if (themes) {
               top.warnings.push(...(await driver.setTheme(theme as SweepTheme)))
@@ -350,7 +370,7 @@ export async function sweep(
           progress?.({
             progress: done,
             total,
-            message: `${name}, link ${index + 1} of ${urls.length}: ${outcomeOf(top)}${below ? `; scrolled: ${outcomeOf(below)}` : ''}`,
+            message: `${name}, link ${index + 1} of ${urls.length}${reload ? ', after a restart' : ''}: ${outcomeOf(top)}${below ? `; scrolled: ${outcomeOf(below)}` : ''}`,
           })
         }
 

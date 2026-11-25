@@ -200,3 +200,32 @@ export async function backgroundAndroid(
   const back = await foregroundAndroid(target, inFront, timing)
   return { app: inFront, away, back }
 }
+
+// On API 36 the start after a force-stop was once warm, and Expo Go lost
+// the link until a second open (CI 45596256902). So the next open waits
+// until the stopped process is gone.
+const STOP_LIMIT = 2000
+const STOP_INTERVAL = 100
+
+/**
+ * Stops the app with `am force-stop`, so the next open starts a new
+ * process. Then it waits until `pidof` finds no process of the app, for
+ * `limit` ms at most. `app` holds only package-name characters (`appField`).
+ */
+export async function forceStopAndroid(
+  target: AndroidTarget,
+  app: string,
+  limit = STOP_LIMIT,
+): Promise<void> {
+  await target.adb.run(['shell', 'am', 'force-stop', app])
+  const start = Date.now()
+  while ((await appRuns(target, app)) && Date.now() - start < limit) {
+    await sleep(STOP_INTERVAL)
+  }
+}
+
+/** True while `pidof` gives a process of the app. It exits 1 with none. */
+async function appRuns(target: AndroidTarget, app: string): Promise<boolean> {
+  const { stdout } = await target.adb.result(['shell', 'pidof', app])
+  return /\d/.test(stdout.toString('utf8'))
+}

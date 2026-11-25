@@ -83,7 +83,9 @@ Take a `screenshot` when you want to see the screen, but decide with
 Give `sweep` one `url` for each screen. Add `orientation`
 (`portrait,landscape-left`) and `theme` (`light,dark`) to check each
 screen in each of them. Add `scroll` to check each screen again after one
-scroll down.
+scroll down. For a long list, add `reloadEvery` (for example 10) with
+`app`: loupe stops the app before each 10th link, so stacked screens
+don't slow it down. A restarted screen has `reloaded` in the report.
 
 - The result lists each screen that failed, with each finding and its
   numbers. You don't need to check those screens again.

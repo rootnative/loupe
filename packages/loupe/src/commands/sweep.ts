@@ -46,6 +46,7 @@ const failureSchema = sweepScreenSchema
     url: true,
     variant: true,
     scrolled: true,
+    reloaded: true,
     screenshot: true,
     error: true,
   })
@@ -114,6 +115,14 @@ export const sweepCommand = defineCommand({
       .describe(
         'Also scroll each screen down once, by 60 % of its largest vertical scroll view, and check it again: <variant>/<number>-scrolled.png and <variant>-scrolled.png. Then loupe scrolls back to the top.',
       ),
+    reloadEvery: z
+      .number()
+      .int()
+      .min(1)
+      .optional()
+      .describe(
+        'Stop the app before each N-th link that the sweep opens, over all the variants, so the link starts it again: stacked screens slow an app down. In Expo Go, loupe then waits until the app shows the route of the link. Needs app. Left out: no restart.',
+      ),
     waitTimeout: timeoutField.describe(
       `How long each screen can take to keep still after its link opens, in ms. ${DEFAULT_WAIT_TIMEOUT} by default.`,
     ),
@@ -154,6 +163,12 @@ export const sweepCommand = defineCommand({
       'an orientation',
     )
     const themes = listOf<SweepTheme>(input.theme, SWEEP_THEMES, 'a theme')
+    if (input.reloadEvery !== undefined && input.app === undefined) {
+      throw new LoupeError(
+        'invalid_input',
+        'reloadEvery needs app: the package that loupe stops before each N-th link.',
+      )
+    }
 
     const target = await selectAndroidDevice(context, input.device)
     requireAppOnDevice(target, input.app)
@@ -167,31 +182,46 @@ export const sweepCommand = defineCommand({
         themes,
         out: input.out,
         scroll: input.scroll,
+        reloadEvery: input.reloadEvery,
       },
       context,
     )
 
     const failures = report.screens
       .filter((screen) => !screen.passed)
-      .map(({ number, url, variant, scrolled, screenshot, check, error }) => {
-        const failed = (check?.results ?? []).filter((result) => !result.passed)
-        return {
+      .map(
+        ({
           number,
           url,
           variant,
           scrolled,
+          reloaded,
           screenshot,
-          rules: failed.map((result) => result.rule),
-          findings: failed.flatMap(({ rule, findings }) =>
-            findings.map(({ element, message }) => ({
-              rule,
-              element,
-              message,
-            })),
-          ),
+          check,
           error,
-        }
-      })
+        }) => {
+          const failed = (check?.results ?? []).filter(
+            (result) => !result.passed,
+          )
+          return {
+            number,
+            url,
+            variant,
+            scrolled,
+            reloaded,
+            screenshot,
+            rules: failed.map((result) => result.rule),
+            findings: failed.flatMap(({ rule, findings }) =>
+              findings.map(({ element, message }) => ({
+                rule,
+                element,
+                message,
+              })),
+            ),
+            error,
+          }
+        },
+      )
     return {
       out: report.out,
       report: path.join(report.out, 'report.json'),
@@ -218,8 +248,17 @@ export const sweepCommand = defineCommand({
           `${variant.name}: ${variant.failed === 0 ? 'pass' : `${variant.failed} failed`}, contact sheet ${variant.sheet}${variant.scrolledSheet ? `, scrolled ${variant.scrolledSheet}` : ''}`,
       ),
       ...failures.flatMap(
-        ({ number, url, variant, scrolled, rules, findings, error }) => {
-          const where = `  ${number} ${variant}${scrolled ? ' scrolled' : ''} ${url}`
+        ({
+          number,
+          url,
+          variant,
+          scrolled,
+          reloaded,
+          rules,
+          findings,
+          error,
+        }) => {
+          const where = `  ${number} ${variant}${scrolled ? ' scrolled' : ''}${reloaded ? ' after a restart' : ''} ${url}`
           if (error) return [`${where}: ${error.code}: ${error.message}`]
           return [
             `${where}: ${rules.join(', ')}`,

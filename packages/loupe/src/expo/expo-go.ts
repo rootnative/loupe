@@ -75,6 +75,17 @@ export function normalRoute(route: string): string {
 }
 
 /**
+ * The route of an Expo Go link: `/settings` for
+ * `exp://127.0.0.1:8081/--/settings`, and `/` with no `/--/`. Undefined for
+ * a link that isn't `exp:` or `exps:`.
+ */
+export function routeOfLink(link: string): string | undefined {
+  if (!/^exps?:\/\//.test(link)) return undefined
+  const at = link.indexOf('/--/')
+  return at === -1 ? '/' : normalRoute(link.slice(at + 3))
+}
+
+/**
  * The link that opens the app in Expo Go on 127.0.0.1, through `adb
  * reverse` of the port: `exp://127.0.0.1:8081/--/settings` for `settings`.
  */
