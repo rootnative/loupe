@@ -4,6 +4,10 @@ All notable changes to `@rootnative/loupe` are in this file. The format follows 
 
 ## [Unreleased]
 
+## [0.0.0-alpha.3] - 2026-11-28
+
+The first step to iOS: on a Mac, `devices` lists the iOS simulators, and `device` takes one. loupe doesn't drive a simulator yet.
+
 ### Added
 
 - **`devices` lists the iOS simulators** on a Mac, after the Android devices: each simulator that Xcode can start, with `platform: "ios"`, `kind: "simulator"`, its `udid`, its `name`, and its runtime in `os` (for example `iOS 18.6`). A simulator that runs is `ready`, and the others are `stopped`. loupe doesn't drive a simulator yet. On a Mac with no Xcode, or with no Android SDK, `devices` gives the other list and a warning. On Linux and Windows it asks only the Android tools, as before.
@@ -13,6 +17,8 @@ All notable changes to `@rootnative/loupe` are in this file. The format follows 
 
 - The table of `devices` has the columns `Id` and `OS` in place of `Serial` and `API`, and an Android device shows `API 34` there. The JSON of an Android device doesn't change.
 - `CommandContext` has `hostPlatform`, the system of the machine. `createContext()` sets it. A context that you build by hand needs it.
+- On a Mac where an iOS simulator runs and an Android device is ready, a command with no `device` now gives `device_ambiguous`. Give `device`, or set `ANDROID_SERIAL`.
+- The package holds the test runner for the iOS simulator in `dist/ios-runner` (0.8 MB), built for Apple silicon and Intel Macs. No command starts it yet.
 
 ## [0.0.0-alpha.2] - 2026-11-25
 
@@ -50,6 +56,7 @@ loupe drives an Android emulator or device, measures each screen of your app in 
 - **The device:** `devices`, `open-url`, `rotate`, `theme`, `background`, `foreground`, and `dismiss`. `dismiss` closes a system sheet, a dialog, the keyboard, or an overlay of your app.
 - **The probe:** when your app renders `<LoupeProbe />` from `@rootnative/loupe-probe`, `insets` and the rules use the app's own safe area.
 
-[unreleased]: https://github.com/rootnative/loupe/compare/loupe@0.0.0-alpha.2...HEAD
+[unreleased]: https://github.com/rootnative/loupe/compare/loupe@0.0.0-alpha.3...HEAD
+[0.0.0-alpha.3]: https://github.com/rootnative/loupe/releases/tag/loupe@0.0.0-alpha.3
 [0.0.0-alpha.2]: https://github.com/rootnative/loupe/releases/tag/loupe@0.0.0-alpha.2
 [0.0.0-alpha.1]: https://github.com/rootnative/loupe/releases/tag/loupe@0.0.0-alpha.1
