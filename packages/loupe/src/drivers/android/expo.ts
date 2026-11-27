@@ -177,7 +177,7 @@ export async function showInExpoGo(
         last = `Expo Go's ${screen === 'onboarding' ? 'onboarding sheet' : 'developer menu'}`
       } else if (screen === 'loading') {
         last = "Expo Go's loading screen"
-      } else if (!ui.probe?.report && !hasAppContent(ui.nodes)) {
+      } else if (!ui.probe?.report && !hasAppContent(ui.nodes, 'android')) {
         last = 'a screen with no text, label or touch yet'
       } else if (!ui.probe?.report) {
         appShows = true
@@ -249,7 +249,7 @@ async function stillAppInExpoGo(
     again !== undefined &&
     expoGoScreenOf(again.nodes) === undefined &&
     !again.probe?.report &&
-    hasAppContent(again.nodes)
+    hasAppContent(again.nodes, 'android')
   )
 }
 

@@ -1,5 +1,5 @@
 import { z } from 'zod'
-import { round2 } from './units'
+import { type Platform, round2 } from './units'
 
 export const rectSchema = z.object({
   x: z.number(),
@@ -44,24 +44,43 @@ export type UiNode = z.infer<typeof uiNodeSchema>
 
 export type Axis = 'x' | 'y'
 
-const EXPO_GO = 'host.exp.exponent'
+const EXPO_GO_ANDROID = 'host.exp.exponent'
+
+/**
+ * True for a view of the app itself in an Android tree: its class is
+ * `android.*`. A node of another class in Expo Go is Expo Go's own.
+ */
+function isAndroidView(node: UiNode): boolean {
+  return node.type.startsWith('android.')
+}
 
 /**
  * True for the root of Expo Go's own overlay (the "Tools" button and its
- * label) when the app is Expo Go: a node whose class isn't `android.*`.
- * The app's views are all `android.*`. A fresh Expo Go shows the label for
- * a few seconds, so the overlay can change while the app keeps still.
+ * label) when the app is Expo Go. A fresh Expo Go shows the label for a few
+ * seconds, so the overlay can change while the app keeps still. On Android
+ * it's a node whose class isn't `android.*`: the app's views are all
+ * `android.*`. Only the Android tree marks it: an iOS tree gives false.
  */
 export function isExpoGoOverlay(
   node: UiNode,
   app: string | undefined,
+  platform: Platform,
 ): boolean {
-  return app === EXPO_GO && !node.type.startsWith('android.')
+  return (
+    platform === 'android' && app === EXPO_GO_ANDROID && !isAndroidView(node)
+  )
 }
 
-/** A scroll view scrolls along x when its class says so, else along y. */
-export function scrollAxisOf(node: UiNode): Axis {
-  return /HorizontalScrollView|ViewPager/.test(node.type) ? 'x' : 'y'
+/**
+ * The axis of a scroll view. On Android it scrolls along x when its class
+ * says so, else along y. Only the Android tree names the axis: on iOS each
+ * scroll view counts as one along y.
+ */
+export function scrollAxisOf(node: UiNode, platform: Platform): Axis {
+  return platform === 'android' &&
+    /HorizontalScrollView|ViewPager/.test(node.type)
+    ? 'x'
+    : 'y'
 }
 
 function describeNode(node: UiNode): string {

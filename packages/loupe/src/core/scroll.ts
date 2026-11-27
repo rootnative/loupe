@@ -6,6 +6,7 @@ import {
   type Point,
   type Rect,
   rectBottom,
+  type Platform,
   rectRight,
   type Size,
 } from './units'
@@ -43,6 +44,7 @@ export function scrollViewFor(
   nodes: readonly UiNode[],
   direction: ScrollDirection,
   screen: Size,
+  platform: Platform,
   id?: string,
 ): UiNode | null {
   if (id !== undefined) {
@@ -70,7 +72,7 @@ export function scrollViewFor(
       intersection(node.frame, screenRect) !== null,
   )
   const along = scrollers.filter(
-    (node) => scrollAxisOf(node) === axisOf(direction),
+    (node) => scrollAxisOf(node, platform) === axisOf(direction),
   )
   const candidates = along.length > 0 ? along : scrollers
   const innermost = candidates.filter((node) => {
@@ -112,12 +114,13 @@ export function scrollStroke(
 export function viewContent(
   nodes: readonly UiNode[],
   frame: Rect,
+  platform: Platform,
   app?: string,
 ): string {
   const rows: unknown[][] = []
   const walk = (list: readonly UiNode[]) => {
     for (const node of list) {
-      if (isExpoGoOverlay(node, app)) continue
+      if (isExpoGoOverlay(node, app, platform)) continue
       if (intersection(node.frame, frame) !== null) {
         const { type, text, label, id } = node
         const { x, y, width, height } = node.frame

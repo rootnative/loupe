@@ -80,7 +80,13 @@ export async function scrollToAndroid(
   let ended = false
 
   const scroll = async (share?: number) => {
-    const next = scrollViewFor(ui.nodes, direction, ui.display.size, options.in)
+    const next = scrollViewFor(
+      ui.nodes,
+      direction,
+      ui.display.size,
+      'android',
+      options.in,
+    )
     if (!next) {
       throw new LoupeError(
         'element_not_found',
@@ -88,12 +94,12 @@ export async function scrollToAndroid(
       )
     }
     view = next
-    const before = viewContent(ui.nodes, next.frame, app)
+    const before = viewContent(ui.nodes, next.frame, 'android', app)
     const { from, to } = scrollStroke(next.frame, direction, share)
     await dragAndroid(target, from, to, STROKE, app)
     scrolls += 1
     ui = await readAndroidUi(target, app)
-    ended = viewContent(ui.nodes, next.frame, app) === before
+    ended = viewContent(ui.nodes, next.frame, 'android', app) === before
   }
 
   for (;;) {
@@ -105,7 +111,14 @@ export async function scrollToAndroid(
         'Scroll to one by another selector.',
       )
       const around =
-        view ?? scrollViewFor(ui.nodes, direction, ui.display.size, options.in)
+        view ??
+        scrollViewFor(
+          ui.nodes,
+          direction,
+          ui.display.size,
+          'android',
+          options.in,
+        )
       const cut =
         around !== null &&
         intersection(element.frame, around.frame) !== null &&
@@ -161,14 +174,14 @@ export async function scrollOnceAndroid(
   app?: string,
 ): Promise<ScrolledOnce | undefined> {
   const ui = await readAndroidUi(target, app)
-  const view = scrollViewFor(ui.nodes, 'down', ui.display.size)
-  if (!view || scrollAxisOf(view) !== 'y') return undefined
+  const view = scrollViewFor(ui.nodes, 'down', ui.display.size, 'android')
+  if (!view || scrollAxisOf(view, 'android') !== 'y') return undefined
 
-  const top = viewContent(ui.nodes, view.frame, app)
+  const top = viewContent(ui.nodes, view.frame, 'android', app)
   const { from, to } = scrollStroke(view.frame, 'down')
   await dragAndroid(target, from, to, STROKE, app)
   const after = await readAndroidUi(target, app)
-  return viewContent(after.nodes, view.frame, app) === top
+  return viewContent(after.nodes, view.frame, 'android', app) === top
     ? undefined
     : { frame: view.frame, top }
 }
@@ -192,6 +205,7 @@ export async function flingToTopAndroid(
     const now = viewContent(
       (await readAndroidUi(target, app)).nodes,
       frame,
+      'android',
       app,
     )
     if (now === top) return []

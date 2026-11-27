@@ -20,6 +20,7 @@ const SIZE = { width: 900, height: 400 }
 function screen(nodes: UiNode[], app = 'com.example.app'): CheckedScreen {
   const safeArea = { top: 24, right: 0, bottom: 24, left: 50 }
   return {
+    platform: 'android',
     display: {
       orientation: 'landscape-left',
       size: SIZE,
@@ -599,8 +600,8 @@ describe('checkMirrored', () => {
   }
 
   function ltr(nodes: UiNode[]): ScreenTree {
-    const { display, app } = screen([])
-    return { display, app, nodes: [root(nodes)], direction: 'ltr' }
+    const { platform, display, app } = screen([])
+    return { platform, display, app, nodes: [root(nodes)], direction: 'ltr' }
   }
 
   it('passes an element mirrored about the centre of the safe area', () => {

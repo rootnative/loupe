@@ -276,7 +276,7 @@ async function topOverlay(
   app: string,
 ): Promise<string | undefined> {
   const ui = await readAndroidUi(target, app)
-  return labelledOverlays({ ...ui, app }).at(-1)?.label
+  return labelledOverlays({ ...ui, platform: 'android', app }).at(-1)?.label
 }
 
 /**

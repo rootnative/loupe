@@ -47,6 +47,7 @@ export async function checkAndroidUi(
     }
   }
   const screen = {
+    platform: 'android' as const,
     display: ui.display,
     app: ui.app,
     nodes: ui.nodes,

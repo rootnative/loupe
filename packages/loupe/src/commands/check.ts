@@ -102,6 +102,7 @@ function otherDirection(
     )
   }
   return {
+    platform: 'android',
     display: saved,
     app: saved.app,
     nodes: saved.nodes,

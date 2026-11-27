@@ -47,32 +47,47 @@ describe('hasAppContent', () => {
     node({ type: 'android.widget.FrameLayout', children })
 
   it('finds text, a label or a touch deep in the tree', () => {
-    expect(hasAppContent([layout([layout([node({ text: 'Hi' })])])])).toBe(true)
-    expect(hasAppContent([layout([node({ label: 'Menu' })])])).toBe(true)
-    expect(hasAppContent([layout([node({ clickable: true })])])).toBe(true)
+    expect(
+      hasAppContent([layout([layout([node({ text: 'Hi' })])])], 'android'),
+    ).toBe(true)
+    expect(hasAppContent([layout([node({ label: 'Menu' })])], 'android')).toBe(
+      true,
+    )
+    expect(
+      hasAppContent([layout([node({ clickable: true })])], 'android'),
+    ).toBe(true)
   })
 
   it('finds none in layouts and a progress bar', () => {
     expect(
-      hasAppContent([
-        layout([
-          node({
-            type: 'android.widget.ProgressBar',
-            id: 'host.exp.exponent:id/progressBar',
-          }),
-        ]),
-      ]),
+      hasAppContent(
+        [
+          layout([
+            node({
+              type: 'android.widget.ProgressBar',
+              id: 'host.exp.exponent:id/progressBar',
+            }),
+          ]),
+        ],
+        'android',
+      ),
     ).toBe(false)
   })
 
   it("leaves out Expo Go's overlay and an element with no area", () => {
     expect(
-      hasAppContent([
-        layout([
-          node({ type: 'c23', children: [node({ label: 'Tools' })] }),
-          node({ text: 'Hidden', frame: { x: 0, y: 0, width: 0, height: 0 } }),
-        ]),
-      ]),
+      hasAppContent(
+        [
+          layout([
+            node({ type: 'c23', children: [node({ label: 'Tools' })] }),
+            node({
+              text: 'Hidden',
+              frame: { x: 0, y: 0, width: 0, height: 0 },
+            }),
+          ]),
+        ],
+        'android',
+      ),
     ).toBe(false)
   })
 })
@@ -116,5 +131,22 @@ describe('sdkWarning', () => {
     expect(sdkWarning('58.0.6', '58.0.0')).toBeUndefined()
     expect(sdkWarning(undefined, '58.0.0')).toBeUndefined()
     expect(sdkWarning('57.0.2', '58.0.0')).toContain('the Expo Go of SDK 58')
+  })
+})
+
+describe('hasAppContent in an iOS tree', () => {
+  it('counts a node of each type, because no type there is android.*', () => {
+    expect(
+      hasAppContent(
+        [
+          node({
+            type: 'other',
+            children: [node({ type: 'staticText', label: 'Hi' })],
+          }),
+        ],
+        'ios',
+      ),
+    ).toBe(true)
+    expect(hasAppContent([node({ type: 'other' })], 'ios')).toBe(false)
   })
 })

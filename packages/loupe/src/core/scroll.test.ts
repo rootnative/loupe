@@ -37,7 +37,7 @@ describe('scrollViewFor', () => {
     )
     const page = scroller([0, 0, 400, 800], undefined, [list])
 
-    expect(scrollViewFor([page], 'down', SCREEN)).toBe(list)
+    expect(scrollViewFor([page], 'down', SCREEN, 'android')).toBe(list)
   })
 
   it('takes the scroll view of the axis: a carousel in a page', () => {
@@ -47,14 +47,14 @@ describe('scrollViewFor', () => {
     )
     const page = scroller([0, 0, 400, 800], undefined, [carousel])
 
-    expect(scrollViewFor([page], 'down', SCREEN)).toBe(page)
-    expect(scrollViewFor([page], 'right', SCREEN)).toBe(carousel)
+    expect(scrollViewFor([page], 'down', SCREEN, 'android')).toBe(page)
+    expect(scrollViewFor([page], 'right', SCREEN, 'android')).toBe(carousel)
   })
 
   it('takes any scroll view when none scrolls along the axis', () => {
     const list = scroller([0, 0, 400, 800])
 
-    expect(scrollViewFor([list], 'left', SCREEN)).toBe(list)
+    expect(scrollViewFor([list], 'left', SCREEN, 'android')).toBe(list)
   })
 
   it('takes the largest of two, and leaves out one off the screen or with no size', () => {
@@ -63,11 +63,16 @@ describe('scrollViewFor', () => {
     const away = scroller([400, 0, 900, 800])
     const flat = scroller([0, 0, 0, 0])
 
-    expect(scrollViewFor([small, large, away, flat], 'down', SCREEN)).toBe(
-      large,
-    )
     expect(
-      scrollViewFor([away, flat, node([0, 0, 400, 800])], 'down', SCREEN),
+      scrollViewFor([small, large, away, flat], 'down', SCREEN, 'android'),
+    ).toBe(large)
+    expect(
+      scrollViewFor(
+        [away, flat, node([0, 0, 400, 800])],
+        'down',
+        SCREEN,
+        'android',
+      ),
     ).toBeNull()
   })
 
@@ -81,20 +86,20 @@ describe('scrollViewFor', () => {
     const inner = scroller([0, 100, 400, 700])
     const plain = node([0, 0, 400, 50], { id: 'header' })
 
-    expect(scrollViewFor([named, inner, plain], 'down', SCREEN, 'list')).toBe(
-      named,
-    )
+    expect(
+      scrollViewFor([named, inner, plain], 'down', SCREEN, 'android', 'list'),
+    ).toBe(named)
     expect(() =>
-      scrollViewFor([named, plain], 'down', SCREEN, 'header'),
+      scrollViewFor([named, plain], 'down', SCREEN, 'android', 'header'),
     ).toThrow(
       expect.objectContaining({
         code: 'element_not_found',
         message: 'The element with the id "header" doesn\'t scroll.',
       }),
     )
-    expect(() => scrollViewFor([named], 'down', SCREEN, 'nope')).toThrow(
-      expect.objectContaining({ code: 'element_not_found' }),
-    )
+    expect(() =>
+      scrollViewFor([named], 'down', SCREEN, 'android', 'nope'),
+    ).toThrow(expect.objectContaining({ code: 'element_not_found' }))
   })
 })
 
@@ -153,8 +158,12 @@ describe('viewContent', () => {
       node([0, 120, 400, 50], { text: 'First' }),
     ]
 
-    expect(viewContent(header, view)).toBe(viewContent(before, view))
-    expect(viewContent(moved, view)).not.toBe(viewContent(before, view))
+    expect(viewContent(header, view, 'android')).toBe(
+      viewContent(before, view, 'android'),
+    )
+    expect(viewContent(moved, view, 'android')).not.toBe(
+      viewContent(before, view, 'android'),
+    )
   })
 
   it("leaves out Expo Go's overlay in Expo Go, where its label comes and goes", () => {
@@ -166,11 +175,11 @@ describe('viewContent', () => {
     const withLabel = [row, overlay([button, label])]
     const without = [row, overlay([button])]
 
-    expect(viewContent(withLabel, view, 'host.exp.exponent')).toBe(
-      viewContent(without, view, 'host.exp.exponent'),
+    expect(viewContent(withLabel, view, 'android', 'host.exp.exponent')).toBe(
+      viewContent(without, view, 'android', 'host.exp.exponent'),
     )
-    expect(viewContent(withLabel, view, 'com.example.app')).not.toBe(
-      viewContent(without, view, 'com.example.app'),
+    expect(viewContent(withLabel, view, 'android', 'com.example.app')).not.toBe(
+      viewContent(without, view, 'android', 'com.example.app'),
     )
   })
 })

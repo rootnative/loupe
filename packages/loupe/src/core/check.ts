@@ -15,6 +15,7 @@ import { type Axis, isExpoGoOverlay, scrollAxisOf, type UiNode } from './ui'
 import {
   containsRect,
   intersection,
+  type Platform,
   type Rect,
   rectRight,
   round2,
@@ -92,6 +93,8 @@ export type ScreenCheck = z.infer<typeof screenCheckSchema>
 
 /** The tree of one screen, as `ui` gives it. Sizes in dp. */
 export interface ScreenTree {
+  /** The platform of the tree: it says what a node's type means. */
+  platform: Platform
   display: DisplayState
   /** The package of the window in the tree. */
   app?: string
@@ -126,9 +129,8 @@ interface Placed {
 }
 
 /**
- * Each node that the rules can look at. In Expo Go, its own overlay (the
- * "Tools" button) sits in a subtree under a class that isn't `android.*`;
- * the app's views are all `android.*`, so that subtree is left out.
+ * Each node that the rules can look at. In Expo Go, the subtree of its own
+ * overlay (the "Tools" button) is left out.
  */
 function place(screen: ScreenTree): Placed[] {
   const placed: Placed[] = []
@@ -137,10 +139,10 @@ function place(screen: ScreenTree): Placed[] {
     scrollAxes: ReadonlySet<Axis>,
   ): void => {
     for (const node of nodes) {
-      if (isExpoGoOverlay(node, screen.app)) continue
+      if (isExpoGoOverlay(node, screen.app, screen.platform)) continue
       placed.push({ node, siblings: nodes, scrollAxes })
       const inner = node.scrollable
-        ? new Set([...scrollAxes, scrollAxisOf(node)])
+        ? new Set([...scrollAxes, scrollAxisOf(node, screen.platform)])
         : scrollAxes
       walk(node.children ?? [], inner)
     }
