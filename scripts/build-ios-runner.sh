@@ -28,7 +28,9 @@ if [ ! -x "$work/xcodegen/bin/xcodegen" ]; then
   unzip -q -o "$work/xcodegen.zip" -d "$work"
 fi
 
+# XcodeGen writes the project only into a folder that exists.
 rm -rf "$work/project"
+mkdir -p "$work/project"
 "$work/xcodegen/bin/xcodegen" generate \
   --spec "$root/packages/loupe/native/ios/project.yml" \
   --project "$work/project"
