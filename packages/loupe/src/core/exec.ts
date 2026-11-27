@@ -1,4 +1,5 @@
 import { spawn } from 'node:child_process'
+import { closeSync, openSync } from 'node:fs'
 import path from 'node:path'
 import { LoupeError } from './errors'
 
@@ -28,6 +29,72 @@ export type Exec = (
 ) => Promise<ExecResult>
 
 export const DEFAULT_TIMEOUT_MS = 30_000
+
+/** A tool that keeps running after the command that started it. */
+export interface DetachedRun {
+  pid: number
+  /** The exit code (null for a signal) when the tool ended; else undefined. */
+  exitCode(): number | null | undefined
+  kill(): void
+}
+
+export interface DetachedOptions {
+  /** Added to the environment of this process. */
+  env: Readonly<Record<string, string>>
+  /** The tool writes its output here. An old file is replaced. */
+  logFile: string
+}
+
+/**
+ * Starts a tool with no shell that lives on when this process ends. It
+ * fails with `tool_missing` when the tool doesn't exist.
+ */
+export type SpawnDetached = (
+  file: string,
+  args: readonly string[],
+  options: DetachedOptions,
+) => Promise<DetachedRun>
+
+export const nodeSpawnDetached: SpawnDetached = (file, args, options) =>
+  new Promise((resolve, reject) => {
+    const log = openSync(options.logFile, 'w')
+    const child = spawn(file, args, {
+      shell: false,
+      detached: true,
+      stdio: ['ignore', log, log],
+      env: { ...process.env, ...options.env },
+      windowsHide: true,
+    })
+    // The child has its own copy of the file.
+    closeSync(log)
+    let exit: number | null | undefined
+    child.once('exit', (code) => {
+      exit = code
+    })
+    child.once('error', (error: NodeJS.ErrnoException) => {
+      reject(
+        error.code === 'ENOENT'
+          ? new LoupeError('tool_missing', `loupe can't find "${file}".`, {
+              cause: error,
+            })
+          : new LoupeError(
+              'tool_failed',
+              `loupe can't start "${file}": ${error.message}`,
+              { cause: error },
+            ),
+      )
+    })
+    child.once('spawn', () => {
+      child.unref()
+      resolve({
+        pid: child.pid ?? 0,
+        exitCode: () => exit,
+        kill: () => {
+          child.kill()
+        },
+      })
+    })
+  })
 
 const FAILURE_LIMIT = 500
 

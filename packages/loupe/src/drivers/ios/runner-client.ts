@@ -26,6 +26,13 @@ export interface RunnerClient {
 
 const CONNECT_TIMEOUT_MS = 2000
 
+export interface ConnectOptions {
+  /** Goes into each request: a runner with a token takes no other. */
+  token?: string
+  /** Milliseconds to wait for the connection. Default: 2000. */
+  timeout?: number
+}
+
 const seconds = (ms: number): string =>
   ms >= 1000 && ms % 1000 === 0 ? `${ms / 1000} s` : `${ms} ms`
 
@@ -37,7 +44,7 @@ const seconds = (ms: number): string =>
  */
 export function connectRunner(
   port: number,
-  timeout = CONNECT_TIMEOUT_MS,
+  { token, timeout = CONNECT_TIMEOUT_MS }: ConnectOptions = {},
 ): Promise<RunnerClient | undefined> {
   return new Promise((resolve) => {
     const socket = connect({ host: '127.0.0.1', port })
@@ -47,7 +54,7 @@ export function connectRunner(
     }, timeout)
     socket.once('connect', () => {
       clearTimeout(timer)
-      resolve(clientOf(socket))
+      resolve(clientOf(socket, token))
     })
     socket.once('error', () => {
       clearTimeout(timer)
@@ -72,7 +79,7 @@ function failure(cmd: string, answer: Record<string, unknown>): LoupeError {
   )
 }
 
-function clientOf(socket: Socket): RunnerClient {
+function clientOf(socket: Socket, token?: string): RunnerClient {
   let buffer = ''
   let waiting: Waiting | undefined
   let nextId = 1
@@ -143,7 +150,7 @@ function clientOf(socket: Socket): RunnerClient {
             reject(error)
           },
         }
-        socket.write(`${JSON.stringify({ ...message, id })}\n`)
+        socket.write(`${JSON.stringify({ ...message, id, token })}\n`)
       })
     },
     close() {

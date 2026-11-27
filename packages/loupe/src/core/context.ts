@@ -1,5 +1,10 @@
 import { LoupeError } from './errors'
-import { type Exec, nodeExec } from './exec'
+import {
+  type Exec,
+  nodeExec,
+  nodeSpawnDetached,
+  type SpawnDetached,
+} from './exec'
 
 /** How far a long command is. `progress` grows with each update. */
 export interface ProgressUpdate {
@@ -14,6 +19,8 @@ export interface ProgressUpdate {
  */
 export interface CommandContext {
   exec: Exec
+  /** Starts a tool that stays after the command: the iOS runner. */
+  spawnDetached: SpawnDetached
   env: Readonly<Record<string, string | undefined>>
   /**
    * HTTP to a server on this machine, such as Metro. `createContext` gives
@@ -56,6 +63,7 @@ export const localFetch: typeof fetch = async (input, init) => {
 export function createContext(): CommandContext {
   return {
     exec: nodeExec,
+    spawnDetached: nodeSpawnDetached,
     env: process.env,
     fetch: localFetch,
     hostPlatform: process.platform,

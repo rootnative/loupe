@@ -9,6 +9,11 @@ import XCTest
 // with each failure in "issues". XCUITest calls run on the main thread, so
 // the test keeps the main run loop going while the listener waits on its
 // own queue.
+//
+// With LOUPE_TOKEN, each request must carry that value as "token": the port
+// is open to each process of the Mac, and only the process that started the
+// runner knows the token. With LOUPE_IDLE_SECONDS, the test ends after that
+// time with no request, so a runner that nobody uses doesn't stay.
 final class Runner: XCTestCase {
   /// The XCTest failures of the request that runs now; nil between
   /// requests. Read and written on the main thread only.
@@ -27,14 +32,21 @@ final class Runner: XCTestCase {
 
   func testServe() throws {
     continueAfterFailure = true
-    let raw = ProcessInfo.processInfo.environment["LOUPE_PORT"].flatMap { UInt16($0) } ?? 22087
+    let environment = ProcessInfo.processInfo.environment
+    let raw = environment["LOUPE_PORT"].flatMap { UInt16($0) } ?? 22087
     guard let port = NWEndpoint.Port(rawValue: raw) else {
       throw Failure("LOUPE_PORT isn't a port.")
     }
-    let server = try Server(port: port)
+    let token = environment["LOUPE_TOKEN"].flatMap { $0.isEmpty ? nil : $0 }
+    let idle = environment["LOUPE_IDLE_SECONDS"].flatMap { TimeInterval($0) }
+    let server = try Server(port: port, token: token)
     server.start()
     while !server.done {
       _ = RunLoop.main.run(mode: .default, before: Date(timeIntervalSinceNow: 0.1))
+      if let idle, Date().timeIntervalSince(server.lastRequest) > idle {
+        print("loupe runner: no request in \(Int(idle)) s, so it stops")
+        break
+      }
     }
   }
 }
@@ -47,11 +59,14 @@ struct Failure: Error, CustomStringConvertible {
 final class Server {
   /// Read and written on the main thread only.
   var done = false
+  /// When the last request came. Read and written on the main thread only.
+  var lastRequest = Date()
   private let listener: NWListener
   private let queue = DispatchQueue(label: "loupe.runner")
-  private let handler = Handler()
+  private let handler: Handler
 
-  init(port: NWEndpoint.Port) throws {
+  init(port: NWEndpoint.Port, token: String?) throws {
+    handler = Handler(token: token)
     let parameters = NWParameters.tcp
     parameters.allowLocalEndpointReuse = true
     // The simulator shares the Mac's network, so any other address would
@@ -88,7 +103,10 @@ final class Server {
       while let newline = buffer.firstIndex(of: 0x0A) {
         let line = Data(buffer[buffer.startIndex..<newline])
         buffer = Data(buffer[buffer.index(after: newline)...])
-        let (answer, quit) = DispatchQueue.main.sync { self.handler.answer(line) }
+        let (answer, quit) = DispatchQueue.main.sync {
+          self.lastRequest = Date()
+          return self.handler.answer(line)
+        }
         connection.send(
           content: answer + Data([0x0A]),
           completion: .contentProcessed { _ in
@@ -106,6 +124,9 @@ final class Server {
 
 final class Handler {
   private let springboard = "com.apple.springboard"
+  private let token: String?
+
+  init(token: String?) { self.token = token }
 
   func answer(_ line: Data) -> (Data, Bool) {
     let started = Date()
@@ -118,6 +139,9 @@ final class Handler {
         let command = request["cmd"] as? String
       else { throw Failure("A request is a JSON object with \"cmd\".") }
       id = request["id"]
+      if let token, request["token"] as? String != token {
+        throw Failure("The request doesn't have the token of this runner.")
+      }
       quit = command == "quit"
       reply = try run(command, request)
     } catch {

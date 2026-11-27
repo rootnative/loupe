@@ -4,6 +4,10 @@ All notable changes to `@rootnative/loupe` are in this file. The format follows 
 
 ## [Unreleased]
 
+### Changed
+
+- `CommandContext` has `spawnDetached`, which starts a tool that stays after the command. `createContext()` sets it. A context that you build by hand needs it.
+
 ## [0.0.0-alpha.3] - 2026-11-28
 
 The first step to iOS: on a Mac, `devices` lists the iOS simulators, and `device` takes one. loupe doesn't drive a simulator yet.

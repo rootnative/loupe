@@ -73,6 +73,18 @@ describe('connectRunner', () => {
     ])
   })
 
+  it('puts the token into each request', async () => {
+    const seen: unknown[] = []
+    const port = await fakeRunner((request, socket) => {
+      seen.push(request)
+      send(socket, { id: request.id, ok: true })
+    })
+    const client = await connectRunner(port, { token: 'secret' })
+
+    await client?.request({ cmd: 'ping' })
+    expect(seen).toEqual([{ cmd: 'ping', id: 1, token: 'secret' }])
+  })
+
   it('takes an answer that comes in two parts', async () => {
     const client = await connected((request, socket) => {
       const line = `${JSON.stringify({ id: request.id, ok: true, png: 'x'.repeat(100) })}\n`

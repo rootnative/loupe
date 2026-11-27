@@ -1,7 +1,7 @@
 import path from 'node:path'
 import { type CommandContext } from '../core/context'
 import { LoupeError } from '../core/errors'
-import { type Exec, type ExecOptions } from '../core/exec'
+import { type Exec, type ExecOptions, type SpawnDetached } from '../core/exec'
 
 export interface FakeCall {
   file: string
@@ -32,6 +32,7 @@ export function fakeContext(
   handler: FakeHandler,
   env: CommandContext['env'] = {},
   hostPlatform: NodeJS.Platform = 'linux',
+  spawnDetached: SpawnDetached = noDetached,
 ): { context: CommandContext; calls: FakeCall[] } {
   const calls: FakeCall[] = []
 
@@ -47,7 +48,15 @@ export function fakeContext(
     }
   }
 
-  return { context: { exec, env, fetch: noFetch, hostPlatform }, calls }
+  return {
+    context: { exec, spawnDetached, env, fetch: noFetch, hostPlatform },
+    calls,
+  }
+}
+
+/** For a test that starts no tool that stays: each start fails. */
+const noDetached: SpawnDetached = async (file, args) => {
+  throw new Error(`No fake detached run for: ${file} ${args.join(' ')}`)
 }
 
 /** The `fetch` of a test that makes no HTTP call: each call fails. */
