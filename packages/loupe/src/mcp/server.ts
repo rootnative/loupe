@@ -1,7 +1,5 @@
-import { existsSync } from 'node:fs'
 import path from 'node:path'
 import { type Readable, type Writable } from 'node:stream'
-import { fileURLToPath } from 'node:url'
 import {
   McpServer,
   ProtocolError,
@@ -15,6 +13,7 @@ import {
 } from '@modelcontextprotocol/server/stdio'
 import { registry as defaultRegistry } from '../commands'
 import { type Registry } from '../core/command'
+import { packageFolder } from '../core/package-folder'
 import {
   type CommandContext,
   createContext,
@@ -46,21 +45,9 @@ export function serial(): Serial {
   }
 }
 
-/**
- * The `skills` folder of the package. The search goes up to the folder
- * with `package.json`, because the code runs from `src` in tests and from
- * `dist` in the package.
- */
+/** The `skills` folder of the package. */
 export function skillsFolder(): string {
-  let dir = path.dirname(fileURLToPath(import.meta.url))
-  for (;;) {
-    if (existsSync(path.join(dir, 'package.json'))) {
-      return path.join(dir, 'skills')
-    }
-    const up = path.dirname(dir)
-    if (up === dir) throw new Error("loupe can't find its package folder.")
-    dir = up
-  }
+  return path.join(packageFolder(), 'skills')
 }
 
 export interface McpServerOptions {
