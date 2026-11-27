@@ -6,7 +6,7 @@ import { writeOutputFile } from '../core/output-file'
 import { changeShot, CROP_PATTERN, parseCrop } from '../core/screenshot'
 import { rectSchema } from '../core/ui'
 import { fromPixels, round2 } from '../core/units'
-import { selectAndroidDevice } from '../drivers/android/devices'
+import { selectAndroidOnly } from '../drivers/select'
 import { captureAndroid } from '../drivers/android/screenshot'
 
 export const screenshotCommand = defineCommand({
@@ -57,7 +57,7 @@ export const screenshotCommand = defineCommand({
   }),
   run: async ({ out, crop, scale, app, device }, context) => {
     const capture = await captureAndroid(
-      await selectAndroidDevice(context, device),
+      await selectAndroidOnly(context, device),
       app,
     )
     const { pixels, display } = capture

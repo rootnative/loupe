@@ -2,7 +2,7 @@ import { z } from 'zod'
 import { defineCommand } from '../core/command'
 import { appField, deviceField } from '../core/device'
 import { waitedSchema, waitFields, withWaited } from '../core/wait'
-import { selectAndroidDevice } from '../drivers/android/devices'
+import { selectAndroidOnly } from '../drivers/select'
 import { typeAndroid } from '../drivers/android/keys'
 import { waitAfterAction } from '../drivers/android/wait'
 
@@ -27,7 +27,7 @@ export const typeCommand = defineCommand({
     waited: waitedSchema.optional(),
   }),
   run: async ({ text, app, device, ...wait }, context) => {
-    const target = await selectAndroidDevice(context, device)
+    const target = await selectAndroidOnly(context, device)
     const typed = await typeAndroid(target, text, app)
     const waited = await waitAfterAction(target, app, wait, 'type')
     return { ...typed, waited }

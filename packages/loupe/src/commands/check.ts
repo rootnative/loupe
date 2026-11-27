@@ -14,7 +14,7 @@ import { describeDisplay } from '../core/display'
 import { type Selector } from '../core/element'
 import { LoupeError } from '../core/errors'
 import { checkAndroidUi } from '../drivers/android/check'
-import { selectAndroidDevice } from '../drivers/android/devices'
+import { selectAndroidOnly } from '../drivers/select'
 import { type AndroidUi, readAndroidUi } from '../drivers/android/ui'
 import { uiCommand } from './ui'
 
@@ -165,7 +165,7 @@ export const checkCommand = defineCommand({
     }
     const saved = input.mirrorOf ? await readSavedUi(input.mirrorOf) : undefined
 
-    const target = await selectAndroidDevice(context, input.device)
+    const target = await selectAndroidOnly(context, input.device)
     const ui = await readAndroidUi(target, input.app)
     const mirrorOf =
       saved && input.mirrorOf

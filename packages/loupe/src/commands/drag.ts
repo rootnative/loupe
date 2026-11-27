@@ -9,7 +9,7 @@ import {
   touchSchema,
 } from '../core/touch'
 import { waitedSchema, waitFields, withWaited } from '../core/wait'
-import { selectAndroidDevice } from '../drivers/android/devices'
+import { selectAndroidOnly } from '../drivers/select'
 import { dragAndroid } from '../drivers/android/gesture'
 import { waitAfterAction } from '../drivers/android/wait'
 
@@ -76,7 +76,7 @@ export const dragCommand = defineCommand({
     },
     context,
   ) => {
-    const target = await selectAndroidDevice(context, device)
+    const target = await selectAndroidOnly(context, device)
     const { png, ...drag } = await dragAndroid(
       target,
       { x: fromX, y: fromY },

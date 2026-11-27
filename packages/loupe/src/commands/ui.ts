@@ -5,7 +5,7 @@ import { describeDisplay, displaySchema } from '../core/display'
 import { writeOutputFile } from '../core/output-file'
 import { describeProbe, probeReportSchema } from '../core/probe'
 import { describeUiTree, uiNodeSchema } from '../core/ui'
-import { selectAndroidDevice } from '../drivers/android/devices'
+import { selectAndroidOnly } from '../drivers/select'
 import { readAndroidUi } from '../drivers/android/ui'
 
 export const uiCommand = defineCommand({
@@ -45,7 +45,7 @@ export const uiCommand = defineCommand({
   }),
   run: async ({ out, app, device }, context) => {
     const ui = await readAndroidUi(
-      await selectAndroidDevice(context, device),
+      await selectAndroidOnly(context, device),
       app,
     )
     const data = {

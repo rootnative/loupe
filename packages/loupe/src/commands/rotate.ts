@@ -6,7 +6,7 @@ import {
   displaySchema,
   orientationDescription,
 } from '../core/display'
-import { selectAndroidDevice } from '../drivers/android/devices'
+import { selectAndroidOnly } from '../drivers/select'
 import { rotateAndroid } from '../drivers/android/display'
 
 export const rotateCommand = defineCommand({
@@ -27,6 +27,6 @@ export const rotateCommand = defineCommand({
   positionals: ['to'],
   output: displaySchema,
   run: async ({ to, device, timeout }, context) =>
-    rotateAndroid(await selectAndroidDevice(context, device), to, { timeout }),
+    rotateAndroid(await selectAndroidOnly(context, device), to, { timeout }),
   format: describeDisplay,
 })

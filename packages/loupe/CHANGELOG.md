@@ -7,6 +7,7 @@ All notable changes to `@rootnative/loupe` are in this file. The format follows 
 ### Added
 
 - **`devices` lists the iOS simulators** on a Mac, after the Android devices: each simulator that Xcode can start, with `platform: "ios"`, `kind: "simulator"`, its `udid`, its `name`, and its runtime in `os` (for example `iOS 18.6`). A simulator that runs is `ready`, and the others are `stopped`. loupe doesn't drive a simulator yet. On a Mac with no Xcode, or with no Android SDK, `devices` gives the other list and a warning. On Linux and Windows it asks only the Android tools, as before.
+- **`device` takes an iOS simulator** on a Mac: its UDID, or its name when one simulator with that name runs. With no `device`, loupe takes the only ready device of both platforms, and `device_ambiguous` lists the devices of both. Each command that works on a device gives `unsupported` on a simulator for now, and says how to choose an Android device. `ANDROID_SERIAL` still chooses the Android device.
 
 ### Changed
 

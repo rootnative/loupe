@@ -234,6 +234,19 @@ async function findEntry(
   )
 }
 
+/**
+ * A name for each Android device that is ready, for example
+ * `emulator-5554 (Pixel 8)`.
+ */
+export async function readyAndroidDevices(
+  context: CommandContext,
+): Promise<string[]> {
+  const entries = parseAdbDevices(
+    await createAdb(context).text(['devices', '-l']),
+  )
+  return entries.filter((entry) => entry.adbState === 'device').map(label)
+}
+
 function onlyReadyEntry(entries: readonly AdbDeviceEntry[]): AdbDeviceEntry {
   const ready = entries.filter((entry) => entry.adbState === 'device')
   const [first] = ready.length > 0 ? ready : entries

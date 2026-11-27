@@ -134,3 +134,41 @@ describe('devices', () => {
     )
   })
 })
+
+describe('a device command on a Mac', () => {
+  it('gives unsupported when the device is an iOS simulator', async () => {
+    const { context } = fakeContext(
+      byCommand({
+        'xcrun simctl list --json': {
+          stdout: JSON.stringify({
+            runtimes: [
+              { identifier: 'ios-18', name: 'iOS 18.6', platform: 'iOS' },
+            ],
+            devices: {
+              'ios-18': [
+                { udid: 'AAAA-1', name: 'iPhone 16', state: 'Booted' },
+              ],
+            },
+          }),
+        },
+      }),
+      {},
+      'darwin',
+    )
+
+    for (const [name, input] of [
+      ['ui', {}],
+      ['tap', { x: 10, y: 10 }],
+      ['rotate', { to: 'portrait' }],
+    ] as const) {
+      expect(
+        await runCommand(
+          registry,
+          name,
+          { ...input, device: 'AAAA-1' },
+          context,
+        ),
+      ).toMatchObject({ ok: false, error: { code: 'unsupported' } })
+    }
+  })
+})

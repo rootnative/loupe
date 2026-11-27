@@ -3,7 +3,7 @@ import { defineCommand } from '../core/command'
 import { appField, deviceField } from '../core/device'
 import { KEY_NAMES } from '../core/keys'
 import { waitedSchema, waitFields, withWaited } from '../core/wait'
-import { selectAndroidDevice } from '../drivers/android/devices'
+import { selectAndroidOnly } from '../drivers/select'
 import { pressAndroid } from '../drivers/android/keys'
 import { waitAfterAction } from '../drivers/android/wait'
 
@@ -22,7 +22,7 @@ export const keyCommand = defineCommand({
     waited: waitedSchema.optional(),
   }),
   run: async ({ key, app, device, ...wait }, context) => {
-    const target = await selectAndroidDevice(context, device)
+    const target = await selectAndroidOnly(context, device)
     const pressed = await pressAndroid(target, key, app)
     const waited = await waitAfterAction(target, app, wait, 'key')
     return { ...pressed, waited }

@@ -10,7 +10,7 @@ import {
 } from '../core/element'
 import { DIRECTIONS } from '../core/scroll'
 import { round2 } from '../core/units'
-import { selectAndroidDevice } from '../drivers/android/devices'
+import { selectAndroidOnly } from '../drivers/select'
 import { scrollToAndroid } from '../drivers/android/scroll'
 
 const DEFAULT_MAX_SCROLLS = 20
@@ -66,7 +66,7 @@ export const scrollToCommand = defineCommand({
   }),
   run: async (input, context) => {
     const selector = selectorOf(input)
-    const target = await selectAndroidDevice(context, input.device)
+    const target = await selectAndroidOnly(context, input.device)
     const { display, ...scrolled } = await scrollToAndroid(
       target,
       selector,

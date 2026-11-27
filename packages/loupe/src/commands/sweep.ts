@@ -15,7 +15,7 @@ import {
   sweepVariantSchema,
 } from '../core/sweep'
 import { DEFAULT_WAIT_TIMEOUT, timeoutField } from '../core/wait'
-import { selectAndroidDevice } from '../drivers/android/devices'
+import { selectAndroidOnly } from '../drivers/select'
 import { requireAppOnDevice } from '../drivers/android/foreground'
 import { androidSweepDriver } from '../drivers/android/sweep'
 import { requireAppJson } from '../expo/app-config'
@@ -207,7 +207,7 @@ export const sweepCommand = defineCommand({
       await requireAppJson(projectRoot, 'on', dynamicConfigPath)
     }
 
-    const target = await selectAndroidDevice(context, input.device)
+    const target = await selectAndroidOnly(context, input.device)
     requireAppOnDevice(target, input.app)
     const report = await sweep(
       androidSweepDriver(

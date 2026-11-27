@@ -3,7 +3,7 @@ import { defineCommand } from '../core/command'
 import { appField, deviceField } from '../core/device'
 import { describeDisplay } from '../core/display'
 import { describeInsets, insetsReadingSchema } from '../core/insets'
-import { selectAndroidDevice } from '../drivers/android/devices'
+import { selectAndroidOnly } from '../drivers/select'
 import { readAndroidInsets } from '../drivers/android/insets'
 
 export const insetsCommand = defineCommand({
@@ -19,7 +19,7 @@ export const insetsCommand = defineCommand({
   }),
   output: insetsReadingSchema,
   run: async ({ app, device }, context) =>
-    readAndroidInsets(await selectAndroidDevice(context, device), app),
+    readAndroidInsets(await selectAndroidOnly(context, device), app),
   format: (reading) =>
     [
       describeDisplay(reading),

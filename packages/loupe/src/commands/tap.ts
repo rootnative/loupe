@@ -9,7 +9,7 @@ import {
   describeTouched,
 } from '../core/touch'
 import { waitedSchema, waitFields, withWaited } from '../core/wait'
-import { selectAndroidDevice } from '../drivers/android/devices'
+import { selectAndroidOnly } from '../drivers/select'
 import { aimAndroid } from '../drivers/android/element'
 import { tapAndroid } from '../drivers/android/touch'
 import { waitAfterAction } from '../drivers/android/wait'
@@ -32,7 +32,7 @@ export const tapCommand = defineCommand({
     { app, device, waitStill, waitText, waitTimeout, ...input },
     context,
   ) => {
-    const target = await selectAndroidDevice(context, device)
+    const target = await selectAndroidOnly(context, device)
     const { point, element } = await aimAndroid(target, targetOf(input), app)
     const touch = await tapAndroid(target, point, app)
     const waited = await waitAfterAction(

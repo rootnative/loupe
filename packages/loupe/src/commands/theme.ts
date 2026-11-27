@@ -2,7 +2,7 @@ import { z } from 'zod'
 import { defineCommand } from '../core/command'
 import { appField, deviceField } from '../core/device'
 import { waitedSchema, waitFields, withWaited } from '../core/wait'
-import { selectAndroidDevice } from '../drivers/android/devices'
+import { selectAndroidOnly } from '../drivers/select'
 import {
   readThemeAndroid,
   setThemeAndroid,
@@ -70,7 +70,7 @@ export const themeCommand = defineCommand({
     waited: waitedSchema.optional(),
   }),
   run: async ({ theme, timeout, app, device, ...wait }, context) => {
-    const target = await selectAndroidDevice(context, device)
+    const target = await selectAndroidOnly(context, device)
     if (!theme) return { theme: await readThemeAndroid(target), warnings: [] }
 
     const change = await setThemeAndroid(target, theme, app, { timeout })

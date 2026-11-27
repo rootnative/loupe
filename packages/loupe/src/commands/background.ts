@@ -4,7 +4,7 @@ import { appField, deviceField } from '../core/device'
 import { LoupeError } from '../core/errors'
 import { waitedSchema, waitFields, withWaited } from '../core/wait'
 import { backgroundAndroid } from '../drivers/android/app-switch'
-import { selectAndroidDevice } from '../drivers/android/devices'
+import { selectAndroidOnly } from '../drivers/select'
 import { waitAfterAction } from '../drivers/android/wait'
 import { backSchema, describeBack } from './foreground'
 
@@ -45,7 +45,7 @@ export const backgroundCommand = defineCommand({
         'The wait options need --for: with no --for, the app stays in the background, and there is nothing to wait for.',
       )
     }
-    const target = await selectAndroidDevice(context, input.device)
+    const target = await selectAndroidOnly(context, input.device)
     const result = await backgroundAndroid(target, input.app, input.for)
     const waited = result.back
       ? await waitAfterAction(

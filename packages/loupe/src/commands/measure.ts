@@ -22,7 +22,7 @@ import {
 } from '../core/measure'
 import { decodeCapture } from '../core/screenshot'
 import { round2 } from '../core/units'
-import { selectAndroidDevice } from '../drivers/android/devices'
+import { selectAndroidOnly } from '../drivers/select'
 import { insetsOfUi } from '../drivers/android/insets'
 import { captureAndroid } from '../drivers/android/screenshot'
 import { readAndroidUi } from '../drivers/android/ui'
@@ -95,7 +95,7 @@ export const measureCommand = defineCommand({
     const { tolerance = DEFAULT_TOLERANCE, minLength = DEFAULT_MIN_LENGTH } =
       input
     const measured = measureTargetOf(input)
-    const target = await selectAndroidDevice(context, input.device)
+    const target = await selectAndroidOnly(context, input.device)
 
     if (measured.line) {
       const { axis, at } = measured.line

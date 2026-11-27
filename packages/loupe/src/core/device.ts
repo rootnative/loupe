@@ -75,5 +75,5 @@ export const deviceField = z
   .min(1)
   .optional()
   .describe(
-    'The serial or the AVD name of the device. Without it, loupe uses ANDROID_SERIAL, or the only ready device.',
+    'The serial or the AVD name of an Android device, or the UDID or the name of an iOS simulator. Without it, loupe uses ANDROID_SERIAL, or the only ready device.',
   )

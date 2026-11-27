@@ -8,7 +8,7 @@ import {
   touchSchema,
 } from '../core/touch'
 import { waitedSchema, waitFields, withWaited } from '../core/wait'
-import { selectAndroidDevice } from '../drivers/android/devices'
+import { selectAndroidOnly } from '../drivers/select'
 import { swipeAndroid } from '../drivers/android/touch'
 import { waitAfterAction } from '../drivers/android/wait'
 
@@ -31,7 +31,7 @@ export const swipeCommand = defineCommand({
     { fromX, fromY, toX, toY, duration, app, device, ...wait },
     context,
   ) => {
-    const target = await selectAndroidDevice(context, device)
+    const target = await selectAndroidOnly(context, device)
     const touch = await swipeAndroid(
       target,
       { x: fromX, y: fromY },

@@ -7,7 +7,7 @@ import {
   foregroundAndroid,
   WAYS_BACK,
 } from '../drivers/android/app-switch'
-import { selectAndroidDevice } from '../drivers/android/devices'
+import { selectAndroidOnly } from '../drivers/select'
 import { waitAfterAction } from '../drivers/android/wait'
 
 export const backSchema = z.object({
@@ -58,7 +58,7 @@ export const foregroundCommand = defineCommand({
     waited: waitedSchema.optional(),
   }),
   run: async ({ app, device, waitStill, waitText, waitTimeout }, context) => {
-    const target = await selectAndroidDevice(context, device)
+    const target = await selectAndroidOnly(context, device)
     const back = await foregroundAndroid(target, app)
     const waited = await waitAfterAction(
       target,

@@ -2,7 +2,7 @@ import { z } from 'zod'
 import { defineCommand } from '../core/command'
 import { type CommandContext } from '../core/context'
 import { deviceField } from '../core/device'
-import { selectAndroidDevice } from '../drivers/android/devices'
+import { selectAndroidOnly } from '../drivers/select'
 import {
   forceStopExpoGo,
   probeRouteInExpoGo,
@@ -112,7 +112,7 @@ export async function showApp(
   }: ShowInput,
   { reload = false, prepare }: ShowOptions = {},
 ): Promise<Shown> {
-  const target = await selectAndroidDevice(context, device)
+  const target = await selectAndroidOnly(context, device)
   const expoGo = await readExpoGoVersion(target)
   const warmed = await warmExpo(context, { port }, STEPS)
   const direction = await prepare?.()

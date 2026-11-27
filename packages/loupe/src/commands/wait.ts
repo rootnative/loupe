@@ -12,7 +12,7 @@ import {
   timeoutField,
   waitedSchema,
 } from '../core/wait'
-import { selectAndroidDevice } from '../drivers/android/devices'
+import { selectAndroidOnly } from '../drivers/select'
 import {
   waitForElementAndroid,
   waitStillAndroid,
@@ -74,7 +74,7 @@ export const waitCommand = defineCommand({
       timeout: input.timeout ?? DEFAULT_WAIT_TIMEOUT,
       interval: input.interval ?? DEFAULT_WAIT_INTERVAL,
     }
-    const target = await selectAndroidDevice(context, device)
+    const target = await selectAndroidOnly(context, device)
 
     if (!selector) {
       const result = await waitStillAndroid(target, app, options)

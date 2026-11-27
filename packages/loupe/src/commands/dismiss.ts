@@ -2,7 +2,7 @@ import { z } from 'zod'
 import { defineCommand } from '../core/command'
 import { appField, deviceField } from '../core/device'
 import { waitedSchema, waitFields, withWaited } from '../core/wait'
-import { selectAndroidDevice } from '../drivers/android/devices'
+import { selectAndroidOnly } from '../drivers/select'
 import {
   type Closed,
   describeClosed,
@@ -95,7 +95,7 @@ export const dismissCommand = defineCommand({
     warnings: z.array(z.string()).optional(),
   }),
   run: async ({ all, app, device, ...wait }, context) => {
-    const target = await selectAndroidDevice(context, device)
+    const target = await selectAndroidOnly(context, device)
     const result = await dismissAndroid(target, app, { all })
     const waited = await waitAfterAction(target, app, wait, 'dismiss')
     return { ...result, waited }

@@ -5,7 +5,7 @@ import { selectorFields, targetOf } from '../core/element'
 import { describePinch, pinchFields, pinchSchema } from '../core/pinch'
 import { coordinateField, durationField } from '../core/touch'
 import { waitedSchema, waitFields, withWaited } from '../core/wait'
-import { selectAndroidDevice } from '../drivers/android/devices'
+import { selectAndroidOnly } from '../drivers/select'
 import { aimAndroid } from '../drivers/android/element'
 import { pinchAndroid } from '../drivers/android/pinch'
 import { waitAfterAction } from '../drivers/android/wait'
@@ -45,7 +45,7 @@ export const pinchCommand = defineCommand({
     },
     context,
   ) => {
-    const target = await selectAndroidDevice(context, device)
+    const target = await selectAndroidOnly(context, device)
     const { point, element } = await aimAndroid(
       target,
       targetOf({ x, y, text, label, id }),
