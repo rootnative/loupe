@@ -99,6 +99,32 @@ jobs:
       - name: Run the built CLI
         run: node packages/loupe/dist/bin.js version
 
+  ios-runner:
+    name: iOS runner
+    # The XCTest runner that drives an iOS simulator, built for arm64 and
+    # x86_64. Xcode 16.4 is the oldest Xcode on the image, and a build from
+    # it also runs with Xcode 26. `macos-15` has it; `macos-latest` doesn't.
+    runs-on: macos-15
+    timeout-minutes: 30
+    env:
+      DEVELOPER_DIR: /Applications/Xcode_16.4.app/Contents/Developer
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      # The script gets XcodeGen, pinned by version and SHA-256, and fails
+      # when a binary of the runner lacks one of the two slices.
+      - name: Build the runner
+        run: bash scripts/build-ios-runner.sh "$RUNNER_TEMP/ios-runner"
+
+      - name: Upload the runner
+        uses: actions/upload-artifact@330a01c490aca151604b8cf639adc76d48f6c5d4 # v5.0.0
+        with:
+          name: ios-runner
+          path: ${{ runner.temp }}/ios-runner/Build/Products/
+          retention-days: 7
+          if-no-files-found: error
+
   android:
     name: Android smoke (API ${{ matrix.api-level }})
     # The built CLI on a clean emulator. API 30 is the lowest level that loupe

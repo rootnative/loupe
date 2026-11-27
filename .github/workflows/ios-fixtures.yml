@@ -71,24 +71,9 @@ jobs:
         if: ${{ !inputs.build-only }}
         run: pnpm run build
 
-      # Pinned by version and SHA-256. The zip holds a universal binary.
-      - name: Install XcodeGen
-        env:
-          VERSION: 2.46.0
-          SHA256: 4d9e34b62172d645eed6457cac13fc222569974098ef4ee9c3368bedf0196806
-        run: |
-          curl -fsSL -o "$RUNNER_TEMP/xcodegen.zip" "https://github.com/yonaskolb/XcodeGen/releases/download/$VERSION/xcodegen.zip"
-          echo "$SHA256  $RUNNER_TEMP/xcodegen.zip" | shasum -a 256 -c -
-          unzip -q "$RUNNER_TEMP/xcodegen.zip" -d "$RUNNER_TEMP"
-          echo "$RUNNER_TEMP/xcodegen/bin" >> "$GITHUB_PATH"
-
-      - name: Generate the runner project
-        run: |
-          mkdir -p "$RUNNER_TEMP/build"
-          xcodegen generate --spec scripts/ios/runner/project.yml --project "$RUNNER_TEMP/build"
-
       - name: Build the tool (way A)
         run: |
+          mkdir -p "$RUNNER_TEMP/build"
           for arch in arm64 x86_64; do
             xcrun swiftc -O -target "$arch-apple-macos13" scripts/ios/simtool.swift -o "$RUNNER_TEMP/build/simtool-$arch"
           done
@@ -96,15 +81,12 @@ jobs:
 
       # A build that fails is data for the round, so the loop goes on. The
       # recorder reports the missing build, and its log is in the artifact.
+      # The script gets XcodeGen, pinned by version and SHA-256.
       - name: Build the runner (way B) with Xcode 16.4 and 26.3
         run: |
           for xcode in 16.4 26.3; do
-            if DEVELOPER_DIR="/Applications/Xcode_$xcode.app/Contents/Developer" xcodebuild build-for-testing \
-              -project "$RUNNER_TEMP/build/LoupeRunner.xcodeproj" \
-              -scheme LoupeRunner \
-              -destination "generic/platform=iOS Simulator" \
-              -derivedDataPath "$RUNNER_TEMP/build/runner-$xcode" \
-              ARCHS="arm64 x86_64" ONLY_ACTIVE_ARCH=NO \
+            if DEVELOPER_DIR="/Applications/Xcode_$xcode.app/Contents/Developer" \
+              bash scripts/build-ios-runner.sh "$RUNNER_TEMP/build/runner-$xcode" \
               > "$RUNNER_TEMP/build/runner-$xcode.log" 2>&1
             then
               echo "Xcode $xcode built the runner."

@@ -1,4 +1,4 @@
-# Way B of the iOS driver spike (recorder round 11): a UI test that serves
+# The XCTest runner of loupe for the iOS simulator: a UI test that serves
 # XCUITest on 127.0.0.1. XcodeGen makes the Xcode project from this file in
 # CI; no generated project goes into git. The UI test needs a host app, so
 # LoupeHost is an empty one.

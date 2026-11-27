@@ -1,5 +1,5 @@
 // Shared by the scripts that drive an iOS simulator in CI: simctl with its
-// raw output kept, and the client of the XCTest runner in scripts/ios/runner.
+// raw output kept, and the client of the XCTest runner in packages/loupe/native/ios.
 // Run them from the root of the repository on a macOS runner. DEVELOPER_DIR
 // picks the Xcode of each call.
 
