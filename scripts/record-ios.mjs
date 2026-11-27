@@ -21,7 +21,9 @@
 // 7. summary.txt.
 //
 // iOS asks "Open in “Expo Go”?" before a link opens Expo Go. Each way taps
-// "Open" there, and counts those alerts for each link.
+// "Open" there, and counts those alerts for each link. Expo Go opens its
+// developer menu over the app after a cold start. Each way closes it, and
+// counts the menus for each link.
 //
 // A way that doesn't work is data, not a failure. The script fails when a
 // part can't run, or when no runner starts.
@@ -85,7 +87,8 @@ const SCREENS = [
 ]
 // What each route shows, so a tree with no probe still tells the route.
 const MARKERS = {
-  '/': { text: 'Probe app' },
+  // Not the app's name: Expo Go's developer menu shows that too.
+  '/': { text: 'safe area' },
   '/sheets': { identifier: 'backs' },
   '/centred/defect': { text: 'centred · defect' },
   '/mirrored/defect': { text: 'mirrored · defect' },
@@ -131,10 +134,21 @@ function matches(node, marker) {
     : [node.label, node.title, node.value].includes(marker.text)
 }
 
+const hasLabel = (tree, label) => find(tree, (node) => node.label === label)
+
+/** Expo Go's developer menu. The app's tree can be under it. */
+const isDevMenu = (tree) =>
+  Boolean(hasLabel(tree, 'Reload') && hasLabel(tree, 'Go home'))
+
 const isAppScreen = (tree) =>
+  !isDevMenu(tree) &&
   Object.values(MARKERS).some((marker) =>
     find(tree, (node) => matches(node, marker)),
   )
+
+const showsRoute = (tree, route) =>
+  !isDevMenu(tree) &&
+  Boolean(find(tree, (node) => matches(node, MARKERS[route])))
 
 const textOf = (node) => node?.label ?? node?.value ?? node?.title
 
@@ -371,8 +385,9 @@ async function recordExpoGo() {
  * once. A screen of Expo Go over the app gets a tap on its first closer.
  * Else Springboard's tree is read: the alert that asks before the link
  * opens gets a tap on "Open", and the first one is kept. Else the link goes
- * again after 20 s. Gives the time, the opens, the link alerts, the last
- * tree when the route shows, and the screens on the way.
+ * again after 20 s. Gives the time, the opens, the link alerts, the
+ * developer menus, the last tree when the route shows, and the screens on
+ * the way.
  */
 async function showRoute(runner, route, dir, limit = 120_000) {
   mkdirSync(dir, { recursive: true })
@@ -381,6 +396,8 @@ async function showRoute(runner, route, dir, limit = 120_000) {
   const seen = []
   let opens = 0
   let alerts = 0
+  let menus = 0
+  let inMenu = false
   let openedAt = 0
   const open = () => {
     const opened = openLink(route, path.join(dir, `openurl-${++opens}.txt`))
@@ -391,7 +408,7 @@ async function showRoute(runner, route, dir, limit = 120_000) {
   }
   const finish = (result) => {
     writeFileSync(path.join(dir, 'wait.txt'), `${log.join('\n')}\n`)
-    return { ...result, opens, alerts, screens: seen }
+    return { ...result, opens, alerts, menus, screens: seen }
   }
   const acceptLink = async () => {
     const board = await ask(runner, { cmd: 'tree' })
@@ -422,9 +439,12 @@ async function showRoute(runner, route, dir, limit = 120_000) {
     last = await appTree(runner)
     const ms = Date.now() - start
     let acted = false
+    const menu = last.ok && isDevMenu(last.tree)
+    if (menu && !inMenu) menus++
+    inMenu = menu
     if (!last.ok) {
       log.push(`${ms} ms: tree failed: ${last.error}`)
-    } else if (find(last.tree, (node) => matches(node, MARKERS[route]))) {
+    } else if (showsRoute(last.tree, route)) {
       log.push(`${ms} ms: ${route} shows (tree ${last.ms} ms)`)
       return finish({ ms, tree: last.tree })
     } else {
@@ -466,7 +486,7 @@ async function showRoute(runner, route, dir, limit = 120_000) {
 
 function noteShown(prefix, route, shown) {
   note(
-    `${prefix} ${route}: ${shown.tree ? 'shows' : "doesn't show"} after ${shown.ms} ms, ${shown.opens} opens, ${shown.alerts} link alerts${shown.screens.length ? `; on the way: ${shown.screens.join(' / ')}` : ''}`,
+    `${prefix} ${route}: ${shown.tree ? 'shows' : "doesn't show"} after ${shown.ms} ms, ${shown.opens} opens, ${shown.alerts} link alerts, ${shown.menus} menus${shown.screens.length ? `; on the way: ${shown.screens.join(' / ')}` : ''}`,
   )
 }
 
@@ -486,7 +506,7 @@ async function recordScreens(runner, dir) {
       const root = tree.tree?.frame
       portrait ??= orientation === 'portrait' && root ? root : undefined
       note(
-        `  ${orientation}: read back ${set.orientation ?? set.error}; tree ${tree.ok ? `${[...nodesOf(tree.tree)].length} nodes in ${tree.ms} ms, root ${root?.width} × ${root?.height}, marker ${find(tree.tree, (node) => matches(node, MARKERS[route])) ? 'yes' : 'no'}, probe ${probeChannels(tree.tree).join(', ') || 'none'}` : tree.error}`,
+        `  ${orientation}: read back ${set.orientation ?? set.error}; tree ${tree.ok ? `${[...nodesOf(tree.tree)].length} nodes in ${tree.ms} ms, root ${root?.width} × ${root?.height}, marker ${showsRoute(tree.tree, route) ? 'yes' : 'no'}, probe ${probeChannels(tree.tree).join(', ') || 'none'}` : tree.error}`,
       )
     }
     await ask(runner, { cmd: 'orientation', set: 'portrait' })
@@ -506,18 +526,22 @@ async function recordScreens(runner, dir) {
         await ask(runner, { cmd: 'tree' }),
       )
       await shots(runner, path.join(routeDir, 'share'))
-      const close = find(
-        sheet.tree,
-        (node) => node.type === 'button' && node.label === 'Close',
-      )
+      // The developer menu has a "Close" button too.
+      const close =
+        opened.ok &&
+        !isDevMenu(sheet.tree) &&
+        find(
+          sheet.tree,
+          (node) => node.type === 'button' && node.label === 'Close',
+        )
       const closed = close
         ? await ask(runner, { cmd: 'tap', app: EXPO_GO_IOS, label: 'Close' })
-        : { ok: false, error: 'no "Close" button' }
+        : { ok: false, error: 'no "Close" button of a share sheet' }
       await sleep(1500)
       const after = await appTree(runner)
       writeJson(path.join(routeDir, 'share-closed.tree.json'), after)
       note(
-        `  share sheet: open ${opened.ok ? 'ok' : opened.error}; ${sheet.ok ? signature(sheet.tree) : sheet.error}; close ${closed.ok ? 'ok' : closed.error}; after: ${after.ok ? (find(after.tree, (node) => matches(node, MARKERS['/sheets'])) ? '/sheets' : signature(after.tree)) : after.error}`,
+        `  share sheet: open ${opened.ok ? 'ok' : opened.error}; ${sheet.ok ? signature(sheet.tree) : sheet.error}; close ${closed.ok ? 'ok' : closed.error}; after: ${after.ok ? (showsRoute(after.tree, '/sheets') ? '/sheets' : signature(after.tree)) : after.error}`,
       )
     }
   }
@@ -651,7 +675,7 @@ async function recordExpo(runner, dir) {
     )
     const next = textOf(find(shown.tree, (node) => node.identifier === 'run'))
     note(
-      `b expo restart ${round}: terminate exit ${stop.status}; ${run} → ${next}; ${shown.tree ? 'route kept' : 'no route'} after ${shown.ms} ms, ${shown.opens} opens, ${shown.alerts} link alerts`,
+      `b expo restart ${round}: terminate exit ${stop.status}; ${run} → ${next}; ${shown.tree ? 'route kept' : 'no route'} after ${shown.ms} ms, ${shown.opens} opens, ${shown.alerts} link alerts, ${shown.menus} menus`,
     )
     run = next
   }
@@ -684,7 +708,7 @@ async function recordExpo(runner, dir) {
       writeJson(path.join(dir, name, 'shown.tree.json'), shown.tree)
       await shots(runner, path.join(dir, name, 'shown'))
       note(
-        `b expo ${name}: "${textOf(find(shown.tree, (node) => node.identifier === 'direction'))}" after ${shown.ms} ms, ${shown.opens} opens, ${shown.alerts} link alerts`,
+        `b expo ${name}: "${textOf(find(shown.tree, (node) => node.identifier === 'direction'))}" after ${shown.ms} ms, ${shown.opens} opens, ${shown.alerts} link alerts, ${shown.menus} menus`,
       )
     }
   } finally {
@@ -793,26 +817,31 @@ async function wayA(size) {
   /**
    * Opens the link in portrait, then reads the tree every 2 s until the
    * route's marker shows: the alert that asks before the link opens gets a
-   * tap on "Open" by HID event, and a screen of Expo Go its first closer.
+   * tap on "Open" by HID event, and a screen of Expo Go (its developer menu
+   * too) its first closer.
    */
   const show = async (route, file, limit = 60_000) => {
     const opened = openLink(route, file)
     const start = Date.now()
     const isButton = (node) => node.role === 'AXButton'
     let alerts = 0
+    let menus = 0
+    let inMenu = false
     let shows = false
     while (!shows && Date.now() - start < limit) {
       await sleep(2000)
       const read = tree(`${slug(route)}-open`)
-      shows = Boolean(find(read.tree, (node) => matches(node, MARKERS[route])))
+      shows = showsRoute(read.tree, route)
+      const menu = isDevMenu(read.tree)
+      if (menu && !inMenu) menus++
+      inMenu = menu
       const open = linkAlertButton(read.tree, isButton)
       const closer =
         !open &&
         !isAppScreen(read.tree) &&
-        find(
-          read.tree,
-          (node) => isButton(node) && CLOSERS.includes(node.label),
-        )
+        CLOSERS.map((label) =>
+          find(read.tree, (node) => isButton(node) && node.label === label),
+        ).find(Boolean)
       if (open?.frame) {
         alerts++
         tapAt('link-alert-open', open.frame, read.screen)
@@ -821,7 +850,7 @@ async function wayA(size) {
       }
     }
     note(
-      `a open ${route}: link ${opened.stopped ? 'stopped after 8 s' : `exit ${opened.status}`}; ${shows ? 'shows' : "doesn't show"} after ${Date.now() - start} ms, ${alerts} link alerts`,
+      `a open ${route}: link ${opened.stopped ? 'stopped after 8 s' : `exit ${opened.status}`}; ${shows ? 'shows' : "doesn't show"} after ${Date.now() - start} ms, ${alerts} link alerts, ${menus} menus`,
     )
   }
   const state = (name) => {
@@ -848,7 +877,7 @@ async function wayA(size) {
       const read = tree(`${slug(route)}-${name}`)
       simctlShot(path.join(routeDir, name))
       note(
-        `a ${route} ${name}: keys ${keyed.map((key) => key.error ?? 'ok').join(', ') || '-'}; screen ${shape.screen?.width} × ${shape.screen?.height}; tree ${read.error ?? `${read.nodes} nodes in ${read.ms} ms, marker ${find(read.tree, (node) => matches(node, MARKERS[route])) ? 'yes' : 'no'}, probe ${probeChannels(read.tree).join(', ') || 'none'}`}`,
+        `a ${route} ${name}: keys ${keyed.map((key) => key.error ?? 'ok').join(', ') || '-'}; screen ${shape.screen?.width} × ${shape.screen?.height}; tree ${read.error ?? `${read.nodes} nodes in ${read.ms} ms, marker ${showsRoute(read.tree, route) ? 'yes' : 'no'}, probe ${probeChannels(read.tree).join(', ') || 'none'}`}`,
       )
     }
     await turn('cmd+left')

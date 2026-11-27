@@ -138,13 +138,17 @@ func window(_ app: NSRunningApplication, _ title: String?) throws -> AXUIElement
   return found
 }
 
-/// The device screen: the largest group in the window, two levels down at most.
+/// The device screen: the group with subrole iOSContentGroup, two levels
+/// down at most; with none, the largest group there. A popover of the iOS
+/// app adds a group for its dismiss region, which can be the larger one.
 func screen(of window: AXUIElement) throws -> (element: AXUIElement, frame: CGRect) {
   var best: (element: AXUIElement, frame: CGRect)?
   var level = children(window)
   for _ in 0..<2 {
     for element in level where text(element, kAXRoleAttribute) == "AXGroup" {
-      if let rect = frame(element), rect.width * rect.height > (best?.frame).map({ $0.width * $0.height }) ?? 0 {
+      guard let rect = frame(element) else { continue }
+      if text(element, kAXSubroleAttribute) == "iOSContentGroup" { return (element, rect) }
+      if rect.width * rect.height > (best?.frame).map({ $0.width * $0.height }) ?? 0 {
         best = (element, rect)
       }
     }
