@@ -177,6 +177,8 @@ final class Handler {
       return ["tree": node(try app(request).snapshot())]
     case "state":
       return ["state": name(of: app(request).state)]
+    case "frame":
+      return ["frame": json(app(request).frame)]
     case "tap":
       return try tap(request)
     case "drag":

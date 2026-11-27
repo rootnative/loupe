@@ -15,6 +15,9 @@
 //    Then each build again with no test frameworks of Xcode in it
 //    (`slim-`), and with those of the job's Xcode put back
 //    (`from-xcode-`): can the package ship the runner with no file of Apple?
+//    Then orientation/: Safari, which turns, and the home screen, which
+//    doesn't, in each orientation of the device: what tells the orientation
+//    of the screen, when the app in front keeps its own?
 // 3. expo-go/: a link with no Expo Go, then the install.
 // 4. Metro for the probe app, warmed for iOS.
 // 5. b/: way B with no Simulator window: the first open, the screens in 3
@@ -446,6 +449,81 @@ function slimCopy({ xcode, products, xctestrun }, mode) {
     xcode,
     products: copy,
     xctestrun: path.join(copy, path.basename(xctestrun)),
+  }
+}
+
+/**
+ * The orientation of the device against the orientation of the screen.
+ * Safari turns with the device, and the home screen of an iPhone stays in
+ * portrait. For each one and each orientation of the device, it keeps what
+ * the runner gives: the orientation, the state and the frame of Safari,
+ * the frame of Springboard, both trees and both screenshots.
+ */
+async function recordOrientation(runners, port) {
+  const own = runners.find((runner) => runner.xcode === values.xcode)
+  if (!own?.xctestrun) {
+    throw new Error(`No runner build of Xcode ${values.xcode}.`)
+  }
+  const dir = path.join(out, 'start', 'orientation')
+  mkdirSync(dir, { recursive: true })
+  const runner = await startRunner({
+    xctestrun: own.xctestrun,
+    udid,
+    port,
+    logFile: path.join(dir, 'xcodebuild.log'),
+  })
+  if (runner.error) throw new Error(runner.error)
+  runner.port = port
+  const SAFARI = 'com.apple.mobilesafari'
+  const size = (answer) =>
+    answer.ok
+      ? `${answer.frame.width} × ${answer.frame.height}`
+      : `(${answer.error})`
+
+  let step = 0
+  const read = async (front, orientation) => {
+    const set = await ask(runner, { cmd: 'orientation', set: orientation })
+    await sleep(2500)
+    const name = `${++step}-${front}-${orientation}`
+    const device = await ask(runner, { cmd: 'orientation' })
+    const state = await ask(runner, { cmd: 'state', app: SAFARI })
+    const safari = await ask(runner, { cmd: 'frame', app: SAFARI })
+    const springboard = await ask(runner, { cmd: 'frame' })
+    const safariTree = await ask(runner, { cmd: 'tree', app: SAFARI })
+    const springboardTree = await ask(runner, { cmd: 'tree' })
+    writeJson(path.join(dir, `${name}.json`), {
+      set,
+      device,
+      state,
+      safari,
+      springboard,
+    })
+    writeJson(path.join(dir, `${name}.safari.tree.json`), safariTree)
+    writeJson(path.join(dir, `${name}.springboard.tree.json`), springboardTree)
+    await shots(runner, path.join(dir, name))
+    note(
+      `orientation, ${front} in front, device set to ${orientation}: read back ${device.orientation ?? device.error}; Safari ${state.state ?? state.error}, frame ${size(safari)} in ${safari.ms} ms, tree root ${size({ ok: safariTree.ok, frame: safariTree.tree?.frame, error: safariTree.error })}; Springboard frame ${size(springboard)} in ${springboard.ms} ms, tree root ${size({ ok: springboardTree.ok, frame: springboardTree.tree?.frame, error: springboardTree.error })}`,
+    )
+  }
+
+  try {
+    simctl(path.join(dir, 'launch-safari.txt'), ['launch', udid, SAFARI])
+    await sleep(6000)
+    for (const orientation of [
+      'portrait',
+      'landscapeLeft',
+      'landscapeRight',
+      'portrait',
+    ]) {
+      await read('safari', orientation)
+    }
+    await ask(runner, { cmd: 'home' })
+    await sleep(2500)
+    for (const orientation of ['landscapeLeft', 'landscapeRight', 'portrait']) {
+      await read('home', orientation)
+    }
+  } finally {
+    note(`orientation: xcodebuild after quit: ${await stopRunner(runner)}`)
   }
 }
 
@@ -1084,6 +1162,7 @@ try {
     note('No runner started.')
     process.exitCode = 1
   }
+  await part('orientation', () => recordOrientation(runners, port++))
   await part('slim', async () => {
     for (const runner of runners.filter((built) => built.xctestrun)) {
       for (const mode of SLIM_MODES) {
