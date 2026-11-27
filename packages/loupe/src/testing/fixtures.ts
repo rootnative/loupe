@@ -28,3 +28,13 @@ export function recorded(file: string): FakeRun {
 export function recordedText(file: string): string {
   return readFileSync(path.join(ANDROID, file), 'utf8')
 }
+
+const IOS = fileURLToPath(new URL('../../fixtures/ios/', import.meta.url))
+
+/**
+ * One recorded file of `fixtures/ios`, from the iOS fixtures workflow, for
+ * example `intel/host/simctl-list.json`.
+ */
+export function recordedIosText(file: string): string {
+  return readFileSync(path.join(IOS, file), 'utf8')
+}

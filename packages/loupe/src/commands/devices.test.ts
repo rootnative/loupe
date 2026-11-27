@@ -53,8 +53,8 @@ describe('devices', () => {
       ),
     ).toBe(
       [
-        'Serial         State           Kind      Name            API',
-        'emulator-5554  ready           emulator  Pixel_8_API_34  34',
+        'Id             State           Kind      Name            OS',
+        'emulator-5554  ready           emulator  Pixel_8_API_34  API 34',
         'ABC123         no-permissions  device',
         '-              stopped         emulator  Small_API_30',
         'ABC123: no permissions (missing udev rules?); see [http://developer.android.com/tools/device.html]',
@@ -73,7 +73,64 @@ describe('devices', () => {
     const data = await devicesCommand.run({}, empty)
 
     expect(devicesCommand.format?.(devicesCommand.output.parse(data))).toMatch(
-      /^No devices, and no AVDs\.\nWarning: The list has no stopped AVDs\./,
+      /^No devices, no AVDs, and no simulators\.\nWarning: The list has no stopped AVDs\./,
+    )
+  })
+
+  it('lists the iOS simulators on a Mac, after the Android devices', async () => {
+    const { context: mac } = fakeContext(
+      byCommand({
+        'adb devices -l': { stdout: 'List of devices attached\n\n' },
+        'emulator -list-avds': { stdout: 'Small_API_30\n' },
+        'xcrun simctl list --json': {
+          stdout: JSON.stringify({
+            runtimes: [
+              {
+                identifier: 'com.apple.CoreSimulator.SimRuntime.iOS-18-6',
+                name: 'iOS 18.6',
+                platform: 'iOS',
+                isAvailable: true,
+              },
+            ],
+            devices: {
+              'com.apple.CoreSimulator.SimRuntime.iOS-18-6': [
+                { udid: 'AAAA-1', name: 'iPhone 16', state: 'Shutdown' },
+                { udid: 'BBBB-2', name: 'iPhone 16 Pro', state: 'Booted' },
+              ],
+            },
+          }),
+        },
+      }),
+      {},
+      'darwin',
+    )
+    const result = await runCommand(registry, 'devices', {}, mac)
+
+    expect(result).toMatchObject({
+      ok: true,
+      data: {
+        devices: [
+          { platform: 'android', avd: 'Small_API_30', state: 'stopped' },
+          {
+            platform: 'ios',
+            kind: 'simulator',
+            udid: 'BBBB-2',
+            name: 'iPhone 16 Pro',
+            os: 'iOS 18.6',
+            state: 'ready',
+          },
+          { platform: 'ios', udid: 'AAAA-1', state: 'stopped' },
+        ],
+        warnings: [],
+      },
+    })
+    expect(result.ok && devicesCommand.format?.(result.data as never)).toBe(
+      [
+        'Id      State    Kind       Name           OS',
+        '-       stopped  emulator   Small_API_30',
+        'BBBB-2  ready    simulator  iPhone 16 Pro  iOS 18.6',
+        'AAAA-1  stopped  simulator  iPhone 16      iOS 18.6',
+      ].join('\n'),
     )
   })
 })

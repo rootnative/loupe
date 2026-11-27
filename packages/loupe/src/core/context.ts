@@ -20,6 +20,8 @@ export interface CommandContext {
    * `localFetch`, which refuses every other host.
    */
   fetch: typeof fetch
+  /** The system of this machine, as `process.platform` gives it. */
+  hostPlatform: NodeJS.Platform
   /**
    * Aborts when the caller cancels the call: Ctrl-C in the CLI, or a
    * cancel from the MCP client. A long command stops at its next safe
@@ -52,5 +54,10 @@ export const localFetch: typeof fetch = async (input, init) => {
  * HTTP to this machine.
  */
 export function createContext(): CommandContext {
-  return { exec: nodeExec, env: process.env, fetch: localFetch }
+  return {
+    exec: nodeExec,
+    env: process.env,
+    fetch: localFetch,
+    hostPlatform: process.platform,
+  }
 }

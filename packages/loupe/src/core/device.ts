@@ -11,28 +11,50 @@ export const DEVICE_STATES = [
 ] as const
 
 export const deviceSchema = z.object({
-  platform: z.enum(['android']),
-  kind: z.enum(['emulator', 'device']),
+  platform: z.enum(['android', 'ios']),
+  kind: z.enum(['emulator', 'device', 'simulator']),
   serial: z
     .string()
     .optional()
-    .describe('The adb serial. An AVD that does not run has none.'),
+    .describe(
+      'The adb serial of an Android device. An AVD that does not run has none.',
+    ),
   avd: z.string().optional().describe('The AVD name of an emulator.'),
+  udid: z.string().optional().describe('The UDID of an iOS simulator.'),
+  name: z
+    .string()
+    .optional()
+    .describe('The name of an iOS simulator, for example iPhone 16 Pro.'),
   model: z.string().optional(),
   state: z
     .enum(DEVICE_STATES)
     .describe(
-      'Only a ready device takes commands. "stopped" is an AVD that does not run.',
+      'Only a ready device takes commands. "stopped" is an AVD or a simulator that does not run.',
     ),
   detail: z
     .string()
     .optional()
-    .describe('What adb reports, for the states "no-permissions" and "other".'),
-  apiLevel: z.number().int().optional(),
+    .describe(
+      'What adb or simctl reports, for the states "no-permissions" and "other".',
+    ),
+  apiLevel: z
+    .number()
+    .int()
+    .optional()
+    .describe('The API level of an Android device.'),
+  os: z
+    .string()
+    .optional()
+    .describe('The runtime of an iOS simulator, for example iOS 18.6.'),
 })
 
 export type Device = z.infer<typeof deviceSchema>
 export type DeviceState = Device['state']
+
+export interface DeviceList {
+  devices: Device[]
+  warnings: string[]
+}
 
 /** The input field of each command that reads or touches the screen. */
 export const appField = z

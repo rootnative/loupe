@@ -4,6 +4,15 @@ All notable changes to `@rootnative/loupe` are in this file. The format follows 
 
 ## [Unreleased]
 
+### Added
+
+- **`devices` lists the iOS simulators** on a Mac, after the Android devices: each simulator that Xcode can start, with `platform: "ios"`, `kind: "simulator"`, its `udid`, its `name`, and its runtime in `os` (for example `iOS 18.6`). A simulator that runs is `ready`, and the others are `stopped`. loupe doesn't drive a simulator yet. On a Mac with no Xcode, or with no Android SDK, `devices` gives the other list and a warning. On Linux and Windows it asks only the Android tools, as before.
+
+### Changed
+
+- The table of `devices` has the columns `Id` and `OS` in place of `Serial` and `API`, and an Android device shows `API 34` there. The JSON of an Android device doesn't change.
+- `CommandContext` has `hostPlatform`, the system of the machine. `createContext()` sets it. A context that you build by hand needs it.
+
 ## [0.0.0-alpha.2] - 2026-11-25
 
 The Expo helpers: loupe warms, opens, and restarts your app in Expo Go, and switches it to RTL and back.

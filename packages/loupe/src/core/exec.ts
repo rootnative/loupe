@@ -29,6 +29,27 @@ export type Exec = (
 
 export const DEFAULT_TIMEOUT_MS = 30_000
 
+const FAILURE_LIMIT = 500
+
+/**
+ * What a tool said when it ended with a non-zero exit code or on a signal:
+ * its stderr, or its stdout when it wrote no stderr, cut at 500 characters.
+ * The text never holds the arguments.
+ */
+export function describeToolFailure(name: string, result: ExecResult): string {
+  const status =
+    result.code === null
+      ? `${name} stopped on a signal`
+      : `${name} exited with code ${result.code}`
+  const output = (result.stderr.length > 0 ? result.stderr : result.stdout)
+    .toString('utf8')
+    .trim()
+  if (!output) return `${status}.`
+  return output.length > FAILURE_LIMIT
+    ? `${status}: ${output.slice(0, FAILURE_LIMIT)}…`
+    : `${status}: ${output}`
+}
+
 function toolName(file: string): string {
   return path.parse(file).name || file
 }

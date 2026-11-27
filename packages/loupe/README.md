@@ -140,7 +140,7 @@ Each finding gives the element and its numbers in dp.
 
 | Command | What it does |
 | --- | --- |
-| `devices` | List the Android emulators and devices, and the AVDs that don't run. |
+| `devices` | List the Android emulators and devices, the AVDs that don't run, and on a Mac the iOS simulators. |
 | `open-url` | Open a link (a deep link or a web page), and wait until it opens. |
 | `check` | Check the screen for layout defects with the rules above. |
 | `sweep` | Open each link in each orientation and theme, check each screen, and write a report, the screenshots, and a contact sheet of each variant. |

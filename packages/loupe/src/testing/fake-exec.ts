@@ -23,10 +23,15 @@ export interface FakeRun {
  */
 export type FakeHandler = (call: FakeCall) => FakeRun | undefined
 
-/** A context whose `exec` answers from a handler and records each call. */
+/**
+ * A context whose `exec` answers from a handler and records each call. It
+ * says that it runs on Linux, so no command looks for Xcode, unless
+ * `hostPlatform` says another system.
+ */
 export function fakeContext(
   handler: FakeHandler,
   env: CommandContext['env'] = {},
+  hostPlatform: NodeJS.Platform = 'linux',
 ): { context: CommandContext; calls: FakeCall[] } {
   const calls: FakeCall[] = []
 
@@ -42,7 +47,7 @@ export function fakeContext(
     }
   }
 
-  return { context: { exec, env, fetch: noFetch }, calls }
+  return { context: { exec, env, fetch: noFetch, hostPlatform }, calls }
 }
 
 /** The `fetch` of a test that makes no HTTP call: each call fails. */

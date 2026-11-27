@@ -1,9 +1,11 @@
 import path from 'node:path'
 import { type CommandContext } from '../../core/context'
 import { LoupeError } from '../../core/errors'
-import { type ExecOptions, type ExecResult } from '../../core/exec'
-
-const MESSAGE_LIMIT = 500
+import {
+  describeToolFailure,
+  type ExecOptions,
+  type ExecResult,
+} from '../../core/exec'
 
 /** A tool of the Android SDK. */
 export interface SdkToolInfo {
@@ -69,20 +71,6 @@ function missingTool(
   )
 }
 
-function describeFailure(tool: SdkToolInfo, result: ExecResult): string {
-  const status =
-    result.code === null
-      ? `${tool.name} stopped on a signal`
-      : `${tool.name} exited with code ${result.code}`
-  const output = (result.stderr.length > 0 ? result.stderr : result.stdout)
-    .toString('utf8')
-    .trim()
-  if (!output) return `${status}.`
-  return output.length > MESSAGE_LIMIT
-    ? `${status}: ${output.slice(0, MESSAGE_LIMIT)}…`
-    : `${status}: ${output}`
-}
-
 /**
  * Runs an SDK tool through the context. It finds the tool on the first call
  * and keeps that path. A non-zero exit code fails with `tool_failed` and the
@@ -123,7 +111,10 @@ export function createSdkTool(
   ): Promise<Buffer> {
     const result = await execTool(args, options)
     if (result.code !== 0) {
-      throw new LoupeError('tool_failed', describeFailure(tool, result))
+      throw new LoupeError(
+        'tool_failed',
+        describeToolFailure(tool.name, result),
+      )
     }
     return result.stdout
   }

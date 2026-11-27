@@ -1,5 +1,9 @@
 import { type CommandContext } from '../../core/context'
-import { type Device, type DeviceState } from '../../core/device'
+import {
+  type Device,
+  type DeviceList,
+  type DeviceState,
+} from '../../core/device'
 import { LoupeError } from '../../core/errors'
 import { type Adb, createAdb } from './adb'
 import {
@@ -17,11 +21,6 @@ export const MIN_API_LEVEL = 30
 export const EMULATOR_SERIAL = /^emulator-\d+$/
 
 type Props = Record<string, string>
-
-export interface DeviceList {
-  devices: Device[]
-  warnings: string[]
-}
 
 /** The one device that a command works on. */
 export interface AndroidTarget {
