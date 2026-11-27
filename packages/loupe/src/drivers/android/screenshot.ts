@@ -1,19 +1,11 @@
 import { setTimeout as sleep } from 'node:timers/promises'
-import { type DisplayState } from '../../core/display'
 import { LoupeError } from '../../core/errors'
 import { pngSize } from '../../core/png'
+import { type Capture } from '../../core/screenshot'
 import { type Size } from '../../core/units'
 import { type AndroidTarget } from './devices'
 import { toDisplayState } from './display'
 import { whileInFront } from './foreground'
-
-export interface Capture {
-  png: Buffer
-  /** The size of the PNG, from its header. */
-  pixels: Size
-  /** Read just before the capture. */
-  display: DisplayState
-}
 
 export interface CaptureOptions {
   /** Milliseconds to wait for the pixels to turn with the display. Default: 5000. */

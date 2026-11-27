@@ -168,7 +168,8 @@ export async function selectDevice(
 
 /**
  * The device for a command that works only on Android so far. An iOS
- * simulator gives `unsupported`.
+ * simulator gives `unsupported`. Keep the list of commands in its message
+ * true when a command gets its iOS part.
  */
 export async function selectAndroidOnly(
   context: CommandContext,
@@ -179,6 +180,6 @@ export async function selectAndroidOnly(
   const { name, udid, os } = selected.target
   throw new LoupeError(
     'unsupported',
-    `loupe doesn't drive an iOS simulator yet: "loupe devices" only lists it. The device is ${name} (${udid}, ${os}). For an Android device, give its serial or its AVD name in the "device" option.`,
+    `This command doesn't work on an iOS simulator yet: only "devices" and "screenshot" do. The device is ${name} (${udid}, ${os}). For an Android device, give its serial or its AVD name in the "device" option.`,
   )
 }

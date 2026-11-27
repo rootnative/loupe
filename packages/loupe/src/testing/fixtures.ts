@@ -38,3 +38,8 @@ const IOS = fileURLToPath(new URL('../../fixtures/ios/', import.meta.url))
 export function recordedIosText(file: string): string {
   return readFileSync(path.join(IOS, file), 'utf8')
 }
+
+/** One recorded file of `fixtures/ios` as bytes, for example a screenshot. */
+export function recordedIos(file: string): Buffer {
+  return readFileSync(path.join(IOS, file))
+}

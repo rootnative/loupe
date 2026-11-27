@@ -10,6 +10,7 @@ import {
   PngError,
   pngSize,
   scaleDown,
+  turnQuarter,
 } from './png'
 
 describe('pngSize', () => {
@@ -335,5 +336,36 @@ describe('cropImage and scaleDown', () => {
 
     expect(scaleDown(image, 1)).toBe(image)
     expect(scaleDown(image, 0.01)).toMatchObject({ width: 1, height: 1 })
+  })
+})
+
+describe('turnQuarter', () => {
+  // 3 wide and 2 high: the pixel at (x, y) has the red value 10 * y + x.
+  const image: Image = {
+    width: 3,
+    height: 2,
+    data: Uint8Array.from(
+      [0, 1, 2, 10, 11, 12].flatMap((red) => [red, 0, 0, 255]),
+    ),
+  }
+  const reds = ({ data }: Image) =>
+    Array.from({ length: data.length / 4 }, (_, index) => data[index * 4])
+
+  it('turns to the left: the right edge becomes the top edge', () => {
+    const turned = turnQuarter(image, 'left')
+
+    expect([turned.width, turned.height]).toEqual([2, 3])
+    expect(reds(turned)).toEqual([2, 12, 1, 11, 0, 10])
+  })
+
+  it('turns to the right: the left edge becomes the top edge', () => {
+    const turned = turnQuarter(image, 'right')
+
+    expect([turned.width, turned.height]).toEqual([2, 3])
+    expect(reds(turned)).toEqual([10, 0, 11, 1, 12, 2])
+  })
+
+  it('gives the image back after a turn each way', () => {
+    expect(turnQuarter(turnQuarter(image, 'left'), 'right')).toEqual(image)
   })
 })

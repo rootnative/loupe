@@ -7,8 +7,9 @@ gives your agent exact numbers: element frames, safe areas, cutouts, and
 edges, in dp. Your agent can then say "pass" or "fail" with evidence, not
 with a guess from a screenshot.
 
-> loupe is in alpha, and it drives Android only for now. A new version can
-> change the commands, their options, and their JSON.
+> loupe is in alpha, and it drives Android only for now. On an iOS simulator,
+> only `devices` and `screenshot` work. A new version can change the
+> commands, their options, and their JSON.
 
 ## What you need
 
@@ -144,7 +145,7 @@ Each finding gives the element and its numbers in dp.
 | `open-url` | Open a link (a deep link or a web page), and wait until it opens. |
 | `check` | Check the screen for layout defects with the rules above. |
 | `sweep` | Open each link in each orientation and theme, check each screen, and write a report, the screenshots, and a contact sheet of each variant. |
-| `screenshot` | Save the screen as a PNG file, upright in each orientation. |
+| `screenshot` | Save the screen as a PNG file, upright in each orientation. It works on an iOS simulator too. |
 | `ui` | Read the accessibility tree of the screen, with frames in dp. |
 | `insets` | Read the safe-area insets and the cutout of the current orientation. |
 | `measure` | Measure the colour runs along a row or a column, or where an element sits on the screen and in the safe area. |

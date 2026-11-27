@@ -208,6 +208,20 @@ export async function ensureRunner(
   )
 }
 
+/** Runs `use` with a connection to the runner, and closes the connection. */
+export async function withRunner<T>(
+  context: CommandContext,
+  target: IosTarget,
+  use: (client: RunnerClient) => Promise<T>,
+): Promise<T> {
+  const client = await ensureRunner(context, target)
+  try {
+    return await use(client)
+  } finally {
+    client.close()
+  }
+}
+
 /** Stops the runner of the simulator, when one runs, and removes its record. */
 export async function stopRunner(
   context: CommandContext,

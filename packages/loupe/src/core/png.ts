@@ -337,3 +337,21 @@ export function scaleDown(image: Image, factor: number): Image {
   }
   return { width, height, data }
 }
+
+/**
+ * Turns the image a quarter turn: `left` is counter-clockwise, so the
+ * right edge of the image becomes its top edge.
+ */
+export function turnQuarter(image: Image, to: 'left' | 'right'): Image {
+  const { width, height, data } = image
+  const turned = new Uint8Array(data.length)
+  for (let y = 0; y < width; y++) {
+    for (let x = 0; x < height; x++) {
+      const fromX = to === 'left' ? width - 1 - y : y
+      const fromY = to === 'left' ? x : height - 1 - x
+      const from = (fromY * width + fromX) * 4
+      turned.set(data.subarray(from, from + 4), (y * height + x) * 4)
+    }
+  }
+  return { width: height, height: width, data: turned }
+}

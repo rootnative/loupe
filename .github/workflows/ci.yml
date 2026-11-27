@@ -103,30 +103,54 @@ jobs:
     name: iOS runner
     # The XCTest runner that drives an iOS simulator, built for arm64 and
     # x86_64, as the package ships it: with no test framework of Xcode. The
-    # job starts it on a simulator, then uploads it. A release takes this
-    # build, so it publishes the bytes that this job started. Xcode 16.4 is
-    # the oldest Xcode on the image, and a build from it also runs with
-    # Xcode 26. `macos-15` has it; `macos-latest` doesn't.
+    # job runs the built CLI on a simulator with that runner, then uploads
+    # it. A release takes this build, so it publishes the bytes that this
+    # job ran. Xcode 16.4 is the oldest Xcode on the image, and a build from
+    # it also runs with Xcode 26. `macos-15` has it; `macos-latest` doesn't.
     runs-on: macos-15
-    timeout-minutes: 30
+    timeout-minutes: 40
     env:
       DEVELOPER_DIR: /Applications/Xcode_16.4.app/Contents/Developer
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
+      - name: Setup pnpm
+        uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6.0.10
+
       - name: Setup Node.js
         uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version-file: .nvmrc
+          cache: "pnpm"
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Build
+        run: pnpm run build
 
       # The script gets XcodeGen, pinned by version and SHA-256, and fails
       # when a binary of the runner lacks one of the two slices.
       - name: Build the runner
         run: bash scripts/build-ios-runner.sh "$RUNNER_TEMP/ios-runner-build" "$RUNNER_TEMP/ios-runner"
 
-      - name: Check the runner, and start it on a simulator
-        run: node scripts/check-ios-runner.mjs "$RUNNER_TEMP/ios-runner" --start --ios 18.5 --device "iPhone 16 Pro"
+      - name: Check the runner
+        run: node scripts/check-ios-runner.mjs "$RUNNER_TEMP/ios-runner"
+
+      # The built CLI with the runner in its package folder, on a new
+      # simulator: the CLI starts the runner, keeps it, and uses it again.
+      - name: Run the smoke test on a simulator
+        run: node scripts/ios-smoke.mjs "$RUNNER_TEMP/ios-smoke" --runner "$RUNNER_TEMP/ios-runner" --ios 18.5 --device "iPhone 16 Pro"
+
+      - name: Upload the smoke output
+        if: failure()
+        uses: actions/upload-artifact@330a01c490aca151604b8cf639adc76d48f6c5d4 # v5.0.0
+        with:
+          name: ios-smoke
+          path: ${{ runner.temp }}/ios-smoke/
+          retention-days: 7
+          if-no-files-found: ignore
 
       # An artifact doesn't keep the executable bits of a file, so the
       # runner goes into a tar file. COPYFILE_DISABLE keeps the `._` files

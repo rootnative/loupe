@@ -7,7 +7,17 @@ import {
   PngError,
   scaleDown,
 } from './png'
+import { type DisplayState } from './display'
 import { type Rect, rectFromPixels, round2, type Size } from './units'
+
+/** The screen as a driver gives it: an upright PNG, and its display. */
+export interface Capture {
+  png: Buffer
+  /** The size of the PNG, from its header. */
+  pixels: Size
+  /** Read just before the capture. */
+  display: DisplayState
+}
 
 /** A crop as the CLI takes it: x,y,width,height in dp. */
 export const CROP_PATTERN = /^\d+(\.\d+)?(,\d+(\.\d+)?){3}$/

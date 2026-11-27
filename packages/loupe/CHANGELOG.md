@@ -4,6 +4,11 @@ All notable changes to `@rootnative/loupe` are in this file. The format follows 
 
 ## [Unreleased]
 
+### Added
+
+- **`screenshot` works on an iOS simulator.** The first call for a simulator starts loupe's test runner on it with `xcodebuild`, which takes from 10 seconds to 3 minutes. The runner stays after the command, so the next call is fast. It stops by itself after 10 minutes with no call, and when the simulator stops. The image is upright in each orientation, and the JSON has the size of the screen in pt. With `app` (a bundle id), loupe takes the screenshot only while that app runs in front. For an app that keeps its own orientation while the simulator is turned, the image can be turned wrongly for now.
+- The runner listens on 127.0.0.1 only, and takes only requests with a token that loupe makes at each start. loupe keeps the port and the token, and the log of `xcodebuild`, in `~/Library/Caches/loupe`.
+
 ### Changed
 
 - `CommandContext` has `spawnDetached`, which starts a tool that stays after the command. `createContext()` sets it. A context that you build by hand needs it.

@@ -7,8 +7,9 @@ gives your agent exact numbers: element frames, safe areas, cutouts, and
 edges, in dp. Your agent can then say "pass" or "fail" with evidence, not
 with a guess from a screenshot.
 
-> loupe is in alpha, and it drives Android only for now. A new version can
-> change the commands, their options, and their JSON.
+> loupe is in alpha, and it drives Android only for now. On an iOS simulator,
+> only `devices` and `screenshot` work. A new version can change the
+> commands, their options, and their JSON.
 
 ## The packages
 

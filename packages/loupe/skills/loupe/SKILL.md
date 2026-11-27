@@ -29,9 +29,10 @@ schema, so this skill doesn't repeat them. loupe works on Android 11
 
 1. Run `devices`. Only a device in the state `ready` takes commands.
 2. When two or more devices are ready, give `device` in each call: the
-   serial or the AVD name of an Android device. loupe lists the iOS
-   simulators, but it doesn't drive one yet: a command on a simulator
-   gives `unsupported`.
+   serial or the AVD name of an Android device. On an iOS simulator (its
+   UDID or its name), only `devices` and `screenshot` work so far, and
+   each other command gives `unsupported`. The first `screenshot` on a
+   simulator starts loupe's runner there, which can take 3 minutes.
 3. Give `app` in each call that reads or touches the screen. For Expo Go,
    it's `host.exp.exponent`.
 4. Run one loupe call at a time on a device. Two touches at the same time

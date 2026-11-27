@@ -197,7 +197,12 @@ final class Handler {
       }
       return ["orientation": name(of: XCUIDevice.shared.orientation)]
     case "screenshot":
-      return ["png": XCUIScreen.main.screenshot().pngRepresentation.base64EncodedString()]
+      let shot = XCUIScreen.main.screenshot()
+      return [
+        "png": shot.pngRepresentation.base64EncodedString(),
+        // Pixels per point of the screen.
+        "scale": Double(shot.image.scale),
+      ]
     case "quit":
       return [:]
     default:

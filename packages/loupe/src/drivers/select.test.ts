@@ -350,7 +350,7 @@ describe('selectAndroidOnly', () => {
 
     await expect(selectAndroidOnly(context)).rejects.toMatchObject({
       code: 'unsupported',
-      message: `loupe doesn't drive an iOS simulator yet: "loupe devices" only lists it. The device is iPhone 16 Pro (${PRO}, iOS 18.6). For an Android device, give its serial or its AVD name in the "device" option.`,
+      message: `This command doesn't work on an iOS simulator yet: only "devices" and "screenshot" do. The device is iPhone 16 Pro (${PRO}, iOS 18.6). For an Android device, give its serial or its AVD name in the "device" option.`,
     })
   })
 })
