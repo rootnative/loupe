@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest'
+import { recordedIosText } from '../testing/fixtures'
 import {
   describeProbe,
   isProbeLabel,
@@ -126,5 +127,59 @@ describe('describeProbe', () => {
         direction: 'rtl',
       }),
     ).toBe('Probe: rtl, window 400 × 800 dp, no safe area')
+  })
+})
+
+describe('the probe in the recorded XCUITest tree of an iOS simulator', () => {
+  interface RunnerNode {
+    type: string
+    label?: string
+    frame: { x: number; y: number; width: number; height: number }
+    children?: RunnerNode[]
+  }
+
+  function probeNodes(file: string): RunnerNode[] {
+    const { tree } = JSON.parse(
+      recordedIosText(`intel/b/screens/centred-defect/${file}`),
+    ) as { tree: RunnerNode }
+    const found: RunnerNode[] = []
+    const walk = (node: RunnerNode): void => {
+      if (node.label !== undefined && isProbeLabel(node.label)) found.push(node)
+      node.children?.forEach(walk)
+    }
+    walk(tree)
+    return found
+  }
+
+  it('is one node of 1 × 1 pt at the corner, with the whole report in its label', () => {
+    const nodes = probeNodes('portrait.tree.json')
+
+    expect(nodes).toHaveLength(1)
+    expect(nodes[0]).toMatchObject({
+      type: 'other',
+      frame: { x: 0, y: 0, width: 1, height: 1 },
+    })
+    expect(readProbe(nodes.map((node) => node.label ?? ''))).toEqual({
+      report: {
+        insets: { top: 62, right: 0, bottom: 34, left: 0 },
+        window: { width: 402, height: 874 },
+        scale: 3,
+        direction: 'ltr',
+        colorScheme: 'light',
+        route: '/centred/defect',
+      },
+      warnings: [],
+    })
+  })
+
+  it('gives the insets and the window of the landscape screen', () => {
+    const nodes = probeNodes('landscapeLeft.tree.json')
+
+    expect(
+      readProbe(nodes.map((node) => node.label ?? ''))?.report,
+    ).toMatchObject({
+      insets: { top: 0, right: 62, bottom: 21, left: 62 },
+      window: { width: 874, height: 402 },
+    })
   })
 })

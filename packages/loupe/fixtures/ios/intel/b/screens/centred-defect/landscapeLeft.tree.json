@@ -1,0 +1,374 @@
+{
+  "ok": true,
+  "tree": {
+    "label": "Expo Go",
+    "type": "application",
+    "frame": {
+      "height": 402,
+      "x": 0,
+      "width": 874,
+      "y": 0
+    },
+    "children": [
+      {
+        "type": "window",
+        "frame": {
+          "y": 0,
+          "width": 874,
+          "height": 402,
+          "x": 0
+        },
+        "children": [
+          {
+            "type": "other",
+            "frame": {
+              "height": 402,
+              "y": 0,
+              "x": 0,
+              "width": 874
+            },
+            "children": [
+              {
+                "type": "other",
+                "children": [
+                  {
+                    "frame": {
+                      "height": 402,
+                      "x": 0,
+                      "y": 0,
+                      "width": 874
+                    },
+                    "type": "other",
+                    "children": [
+                      {
+                        "type": "other",
+                        "frame": {
+                          "width": 874,
+                          "x": 0,
+                          "y": 0,
+                          "height": 402
+                        },
+                        "children": [
+                          {
+                            "type": "other",
+                            "frame": {
+                              "height": 402,
+                              "width": 874,
+                              "x": 0,
+                              "y": 0
+                            },
+                            "children": [
+                              {
+                                "type": "other",
+                                "frame": {
+                                  "x": 0,
+                                  "width": 874,
+                                  "y": 0,
+                                  "height": 402
+                                },
+                                "children": [
+                                  {
+                                    "frame": {
+                                      "y": 0,
+                                      "width": 874,
+                                      "height": 402,
+                                      "x": 0
+                                    },
+                                    "children": [
+                                      {
+                                        "children": [
+                                          {
+                                            "frame": {
+                                              "x": 0,
+                                              "width": 1,
+                                              "y": 0,
+                                              "height": 1
+                                            },
+                                            "label": "loupe:{\"v\":1,\"insets\":{\"top\":0,\"right\":62,\"bottom\":21,\"left\":62},\"window\":{\"width\":874,\"height\":402},\"scale\":3,\"direction\":\"ltr\",\"colorScheme\":\"light\",\"route\":\"/centred/defect\"}",
+                                            "type": "other"
+                                          },
+                                          {
+                                            "type": "other",
+                                            "frame": {
+                                              "y": 0,
+                                              "width": 874,
+                                              "x": 0,
+                                              "height": 402
+                                            }
+                                          },
+                                          {
+                                            "type": "other",
+                                            "frame": {
+                                              "x": 0,
+                                              "y": 0,
+                                              "width": 874,
+                                              "height": 402
+                                            },
+                                            "children": [
+                                              {
+                                                "label": "centred · defect",
+                                                "children": [
+                                                  {
+                                                    "label": "centred · defect",
+                                                    "type": "staticText",
+                                                    "frame": {
+                                                      "height": 17,
+                                                      "x": 385.3333435058594,
+                                                      "y": 192.3333282470703,
+                                                      "width": 103
+                                                    }
+                                                  }
+                                                ],
+                                                "type": "staticText",
+                                                "identifier": "caption",
+                                                "frame": {
+                                                  "width": 103,
+                                                  "height": 17,
+                                                  "y": 192.3333282470703,
+                                                  "x": 385.3333435058594
+                                                }
+                                              }
+                                            ]
+                                          },
+                                          {
+                                            "identifier": "bar",
+                                            "frame": {
+                                              "width": 750,
+                                              "y": 0,
+                                              "height": 64,
+                                              "x": 62
+                                            },
+                                            "type": "other"
+                                          },
+                                          {
+                                            "type": "other",
+                                            "identifier": "back",
+                                            "frame": {
+                                              "y": 8,
+                                              "x": 62,
+                                              "width": 48,
+                                              "height": 48
+                                            },
+                                            "label": "Back"
+                                          },
+                                          {
+                                            "label": "Search",
+                                            "type": "other",
+                                            "frame": {
+                                              "width": 48,
+                                              "y": 8,
+                                              "x": 668,
+                                              "height": 48
+                                            },
+                                            "identifier": "action-search"
+                                          },
+                                          {
+                                            "frame": {
+                                              "x": 716,
+                                              "height": 48,
+                                              "width": 48,
+                                              "y": 8
+                                            },
+                                            "type": "other",
+                                            "identifier": "action-share",
+                                            "label": "Share"
+                                          },
+                                          {
+                                            "identifier": "action-more",
+                                            "label": "More",
+                                            "type": "other",
+                                            "frame": {
+                                              "width": 48,
+                                              "x": 764,
+                                              "y": 8,
+                                              "height": 48
+                                            }
+                                          },
+                                          {
+                                            "children": [
+                                              {
+                                                "frame": {
+                                                  "width": 558,
+                                                  "x": 110,
+                                                  "y": 20,
+                                                  "height": 24
+                                                },
+                                                "label": "Centred title",
+                                                "type": "staticText"
+                                              }
+                                            ],
+                                            "type": "staticText",
+                                            "identifier": "bar-title",
+                                            "label": "Centred title",
+                                            "frame": {
+                                              "width": 558,
+                                              "y": 20,
+                                              "height": 24,
+                                              "x": 110
+                                            }
+                                          }
+                                        ],
+                                        "frame": {
+                                          "x": 0,
+                                          "y": 0,
+                                          "height": 402,
+                                          "width": 874
+                                        },
+                                        "type": "other"
+                                      },
+                                      {
+                                        "type": "other",
+                                        "frame": {
+                                          "height": 402,
+                                          "x": 0,
+                                          "y": 0,
+                                          "width": 874
+                                        },
+                                        "children": [
+                                          {
+                                            "type": "other",
+                                            "children": [
+                                              {
+                                                "type": "other",
+                                                "frame": {
+                                                  "y": 0,
+                                                  "width": 874,
+                                                  "x": 0,
+                                                  "height": 402
+                                                }
+                                              }
+                                            ],
+                                            "frame": {
+                                              "y": 0,
+                                              "width": 874,
+                                              "height": 402,
+                                              "x": 0
+                                            }
+                                          }
+                                        ]
+                                      }
+                                    ],
+                                    "type": "other"
+                                  }
+                                ]
+                              }
+                            ]
+                          }
+                        ]
+                      }
+                    ]
+                  }
+                ],
+                "frame": {
+                  "height": 402,
+                  "y": 0,
+                  "x": 0,
+                  "width": 874
+                }
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "children": [
+          {
+            "frame": {
+              "x": 0,
+              "width": 874,
+              "y": 0,
+              "height": 402
+            },
+            "children": [
+              {
+                "type": "other",
+                "frame": {
+                  "y": 0,
+                  "width": 874,
+                  "height": 402,
+                  "x": 0
+                }
+              }
+            ],
+            "type": "other"
+          }
+        ],
+        "type": "window",
+        "frame": {
+          "width": 874,
+          "x": 0,
+          "height": 402,
+          "y": 0
+        }
+      },
+      {
+        "type": "window",
+        "children": [
+          {
+            "children": [
+              {
+                "frame": {
+                  "x": 0,
+                  "y": 0,
+                  "height": 402,
+                  "width": 874
+                },
+                "type": "other",
+                "children": [
+                  {
+                    "frame": {
+                      "y": 0,
+                      "height": 402,
+                      "width": 874,
+                      "x": 0
+                    },
+                    "type": "other",
+                    "children": [
+                      {
+                        "frame": {
+                          "height": 402,
+                          "x": 0,
+                          "width": 874,
+                          "y": 0
+                        },
+                        "children": [
+                          {
+                            "identifier": "gearshape.fill",
+                            "label": "gearshape.fill",
+                            "type": "image",
+                            "frame": {
+                              "height": 26,
+                              "x": 23,
+                              "width": 26,
+                              "y": 75
+                            }
+                          }
+                        ],
+                        "type": "other"
+                      }
+                    ]
+                  }
+                ]
+              }
+            ],
+            "type": "other",
+            "frame": {
+              "y": 0,
+              "height": 402,
+              "x": 0,
+              "width": 874
+            }
+          }
+        ],
+        "frame": {
+          "width": 874,
+          "height": 402,
+          "y": 0,
+          "x": 0
+        }
+      }
+    ]
+  },
+  "ms": 145,
+  "id": 52
+}

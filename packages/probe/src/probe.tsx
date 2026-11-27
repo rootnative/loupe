@@ -42,6 +42,9 @@ function Probe({ route }: LoupeProbeProps) {
     route,
   })
 
+  // No `accessible` prop: with it, the view is an accessibility element on
+  // iOS, and VoiceOver reads the report aloud. Without it, XCUITest still
+  // gives the label, and a screen reader skips the view.
   return (
     <View
       accessibilityLabel={label}
