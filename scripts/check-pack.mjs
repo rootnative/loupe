@@ -4,24 +4,47 @@
 // package.json (main, types, bin, exports), each must-have file, and no other
 // file may be in the package.
 //
-// Usage: node scripts/check-pack.mjs [repository root]
+// With --ios-runner, the package of loupe must also hold the XCTest runner
+// for the iOS simulator in `dist/ios-runner`, with the executable bits on
+// its programs. A release gives the flag: only a macOS job can build the
+// runner, so a build on another system has none. A test framework of Xcode
+// is never in a package.
+//
+// Usage: node scripts/check-pack.mjs [repository root] [--ios-runner]
 
 import { spawnSync } from 'node:child_process'
 import { readFileSync } from 'node:fs'
 import path from 'node:path'
+import {
+  RUNNER_BINARIES,
+  RUNNER_DIR,
+  RUNNER_FILES,
+  XCODE_FRAMEWORK,
+} from './lib/ios-runner.mjs'
 
-const root = path.resolve(process.argv[2] ?? '.')
+const args = process.argv.slice(2)
+const withRunner = args.includes('--ios-runner')
+const root = path.resolve(args.find((arg) => !arg.startsWith('--')) ?? '.')
+const inRunner = (file) => `${RUNNER_DIR}/${file}`
 
 const PACKAGES = [
   {
     dir: 'packages/loupe',
-    must: ['README.md', 'CHANGELOG.md', 'LICENSE', 'skills/loupe/SKILL.md'],
+    must: [
+      'README.md',
+      'CHANGELOG.md',
+      'LICENSE',
+      'skills/loupe/SKILL.md',
+      ...(withRunner ? RUNNER_FILES.map(inRunner) : []),
+    ],
     may: [/^dist\//, /^skills\/loupe\//],
+    executable: withRunner ? RUNNER_BINARIES.map(inRunner) : [],
   },
   {
     dir: 'packages/probe',
     must: ['README.md', 'CHANGELOG.md', 'LICENSE'],
     may: [/^dist\//],
+    executable: [],
   },
 ]
 
@@ -66,7 +89,7 @@ const problem = (text) => {
   problems += 1
 }
 
-for (const { dir, must, may } of PACKAGES) {
+for (const { dir, must, may, executable } of PACKAGES) {
   const folder = path.join(root, dir)
   const manifest = JSON.parse(
     readFileSync(path.join(folder, 'package.json'), 'utf8'),
@@ -85,8 +108,13 @@ for (const { dir, must, may } of PACKAGES) {
       file === 'package.json' ||
       must.includes(file) ||
       may.some((pattern) => pattern.test(file))
-    if (!allowed || NEVER.test(file)) {
+    if (!allowed || NEVER.test(file) || XCODE_FRAMEWORK.test(file)) {
       problem(`${file} is in the package, but it must not be.`)
+    }
+  }
+  for (const { path: file, mode } of packed.files) {
+    if (executable.includes(file) && (mode & 0o111) === 0) {
+      problem(`${file} has no executable bit in the package.`)
     }
   }
 }

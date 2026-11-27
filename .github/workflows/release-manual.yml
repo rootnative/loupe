@@ -20,9 +20,10 @@ name: Release (manual)
 #    or with `npm stage approve`.
 #
 # The workflow checks that CI passed on the commit, sets the version of both
-# packages, and runs the Validate gates on the result. Then it commits
-# `release: loupe@<version>`, tags it, pushes both, stages the two publishes,
-# and creates the GitHub Release.
+# packages, and runs the Validate gates on the result. It takes the runner
+# for the iOS simulator from that CI run, and puts it into the package of
+# loupe. Then it commits `release: loupe@<version>`, tags it, pushes both,
+# stages the two publishes, and creates the GitHub Release.
 #
 # When a run fails after the push, keep the release commit. Delete the tag
 # (`git push --delete origin loupe@<version>`) and dispatch again with the
@@ -91,6 +92,7 @@ jobs:
       # it with GITHUB_TOKEN, which starts no workflow, so CI ran on the
       # commit before it.
       - name: Require a green CI run of this commit
+        id: ci
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           VERSION: ${{ inputs.custom_version }}
@@ -112,6 +114,7 @@ jobs:
             exit 1
           fi
           echo "CI run $id of $sha passed."
+          echo "run=$id" >> "$GITHUB_OUTPUT"
 
       - name: Setup pnpm
         uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6.0.10
@@ -180,6 +183,23 @@ jobs:
       - name: Build
         run: pnpm run build
 
+      # The runner for the iOS simulator needs Xcode to build, and this job
+      # runs on Linux. The "iOS runner" job of CI builds it on macOS, starts
+      # it on a simulator, and uploads it. This step takes the build of the
+      # CI run that passed above, so the package ships the bytes that CI
+      # started. It goes in after the build, which empties `dist`. An
+      # artifact lives 7 days: when it's gone, rerun that CI job, then
+      # dispatch again.
+      - name: Get the iOS runner from the CI run
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          CI_RUN: ${{ steps.ci.outputs.run }}
+        run: |
+          gh run download "$CI_RUN" --name ios-runner --dir "$RUNNER_TEMP/ios-runner"
+          mkdir -p packages/loupe/dist/ios-runner
+          tar -xzf "$RUNNER_TEMP/ios-runner/ios-runner.tar.gz" -C packages/loupe/dist/ios-runner
+          node scripts/check-ios-runner.mjs packages/loupe/dist/ios-runner
+
       - name: Run the built CLI
         env:
           VERSION: ${{ steps.version.outputs.version }}
@@ -191,7 +211,7 @@ jobs:
           fi
 
       - name: Check the packages
-        run: node scripts/check-pack.mjs
+        run: node scripts/check-pack.mjs --ios-runner
 
       - name: Commit and tag
         env:

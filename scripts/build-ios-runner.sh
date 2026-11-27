@@ -4,15 +4,22 @@
 # "CI" and "iOS fixtures" workflows call it. DEVELOPER_DIR picks the Xcode.
 # The built products are in <derived-data-dir>/Build/Products.
 #
+# With <package-dir>, it also writes there what the package of loupe ships:
+# the two apps and the test bundle with no test framework of Xcode, and the
+# `.xctestrun` file as LoupeRunner.xctestrun. Xcode copies its frameworks
+# into the runner app (16 MB), and gives its own when it starts the runner,
+# so the runner starts with none in it.
+#
 # XcodeGen makes the Xcode project from project.yml, so no generated project
 # is in git. The script downloads it once per work folder, pinned by version
 # and SHA-256. The zip holds a universal binary.
 #
-# Usage: scripts/build-ios-runner.sh <derived-data-dir>
+# Usage: scripts/build-ios-runner.sh <derived-data-dir> [<package-dir>]
 
 set -euo pipefail
 
-out=${1:?Usage: scripts/build-ios-runner.sh <derived-data-dir>}
+out=${1:?Usage: scripts/build-ios-runner.sh <derived-data-dir> [<package-dir>]}
+package=${2:-}
 
 XCODEGEN_VERSION=2.46.0
 XCODEGEN_SHA256=4d9e34b62172d645eed6457cac13fc222569974098ef4ee9c3368bedf0196806
@@ -57,3 +64,16 @@ for binary in "$app/LoupeRunner-Runner" "$app/PlugIns/LoupeRunner.xctest/LoupeRu
     esac
   done
 done
+
+if [ -n "$package" ]; then
+  products=$out/Build/Products
+  rm -rf "$package"
+  mkdir -p "$package/Debug-iphonesimulator"
+  cp -R "$products/Debug-iphonesimulator/LoupeHost.app" \
+    "$products/Debug-iphonesimulator/LoupeRunner-Runner.app" \
+    "$package/Debug-iphonesimulator/"
+  rm -rf "$package/Debug-iphonesimulator/LoupeRunner-Runner.app/Frameworks"
+  # The name that Xcode gives has the version of its SDK in it.
+  cp "$products"/*.xctestrun "$package/LoupeRunner.xctestrun"
+  echo "The runner for the package is in $package."
+fi
