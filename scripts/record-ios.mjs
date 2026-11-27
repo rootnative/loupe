@@ -12,6 +12,9 @@
 // 1. host/: the macOS, the Xcode, the simulators, the CPU slices.
 // 2. simulator/: a new simulator, booted with no window.
 // start/: each runner build started once (with --build-only, the end).
+//    Then each build again with no test frameworks of Xcode in it
+//    (`slim-`), and with those of the job's Xcode put back
+//    (`from-xcode-`): can the package ship the runner with no file of Apple?
 // 3. expo-go/: a link with no Expo Go, then the install.
 // 4. Metro for the probe app, warmed for iOS.
 // 5. b/: way B with no Simulator window: the first open, the screens in 3
@@ -29,7 +32,14 @@
 // part can't run, or when no runner starts.
 
 import { spawnSync } from 'node:child_process'
-import { mkdirSync, readdirSync, readFileSync, writeFileSync } from 'node:fs'
+import {
+  existsSync,
+  mkdirSync,
+  readdirSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from 'node:fs'
 import path from 'node:path'
 import { setTimeout as sleep } from 'node:timers/promises'
 import { parseArgs } from 'node:util'
@@ -49,6 +59,7 @@ import {
   simctl,
   startRunner,
   stopRunner,
+  toolText,
 } from './lib/ios.mjs'
 
 const { positionals, values } = parseArgs({
@@ -76,6 +87,8 @@ const FIRST_PORT = 22087
 // The simulator's name; the Simulator window has it as its title.
 const SIMULATOR = 'loupe-round-11'
 const RUNNER_PORT = 22100
+// How a runner copy gets the test frameworks that Xcode put into the build.
+const SLIM_MODES = ['slim', 'from-xcode']
 
 const ORIENTATIONS = ['portrait', 'landscapeLeft', 'landscapeRight']
 const SCREENS = [
@@ -227,6 +240,20 @@ function recordHost() {
   ])
   captureTool(path.join(host, 'xcode-select.txt'), 'xcode-select', ['-p'])
   captureTool(path.join(host, 'simtool.lipo.txt'), 'lipo', ['-archs', simtool])
+  const platform = toolText('xcrun', [
+    '--sdk',
+    'iphonesimulator',
+    '--show-sdk-platform-path',
+  ]).trim()
+  for (const [file, folder] of [
+    ['platform-frameworks.txt', path.join('Library', 'Frameworks')],
+    ['platform-lib.txt', path.join('usr', 'lib')],
+  ]) {
+    captureTool(path.join(host, file), 'ls', [
+      '-la',
+      path.join(platform, 'Developer', folder),
+    ])
+  }
   const trusted = captureTool(
     path.join(host, 'simtool-trusted.json'),
     simtool,
@@ -311,11 +338,15 @@ async function shots(runner, file) {
 }
 
 /** Starts one runner build on the simulator, asks a few things, and quits. */
-async function startOnce({ xcode, products, xctestrun }, port) {
-  const dir = path.join(out, 'start', `built-with-${xcode}`)
+async function startOnce(
+  { xcode, products, xctestrun },
+  port,
+  label = `built with Xcode ${xcode}`,
+) {
+  const dir = path.join(out, 'start', label.replaceAll(' ', '-').toLowerCase())
   mkdirSync(dir, { recursive: true })
   if (!xctestrun) {
-    note(`built with Xcode ${xcode}: no build (see runner-${xcode}.log)`)
+    note(`${label}: no build (see runner-${xcode}.log)`)
     return false
   }
   writeFileSync(path.join(dir, 'runner.xctestrun'), readFileSync(xctestrun))
@@ -339,14 +370,14 @@ async function startOnce({ xcode, products, xctestrun }, port) {
     logFile: path.join(dir, 'xcodebuild.log'),
   })
   if (runner.error) {
-    note(`built with Xcode ${xcode}: ${runner.error} (${runner.ms} ms)`)
+    note(`${label}: ${runner.error} (${runner.ms} ms)`)
     await stopRunner(runner)
     return false
   }
   runner.port = port
   writeJson(path.join(dir, 'ping.json'), runner.ping)
   note(
-    `built with Xcode ${xcode}: ping after ${runner.ms} ms (built with ${runner.ping.builtWith}, ${runner.ping.sdk}; ${runner.ping.os})`,
+    `${label}: ping after ${runner.ms} ms (built with ${runner.ping.builtWith}, ${runner.ping.sdk}; ${runner.ping.os})`,
   )
 
   for (const [name, message] of [
@@ -363,6 +394,59 @@ async function startOnce({ xcode, products, xctestrun }, port) {
   const exit = await stopRunner(runner)
   note(`  xcodebuild after quit: ${exit}`)
   return true
+}
+
+/**
+ * A copy of a runner build with no test framework of Xcode in its runner
+ * app. With `from-xcode`, each one comes back from the Xcode of this job,
+ * which stands for the Xcode of a user. Gives the copy as a runner build,
+ * or undefined when the build has no such frameworks.
+ */
+function slimCopy({ xcode, products, xctestrun }, mode) {
+  const copy = path.join(build, `${mode}-${xcode}`)
+  rmSync(copy, { recursive: true, force: true })
+  // cp -R keeps each symbolic link of a framework as a link.
+  const copied = spawnSync('cp', ['-R', products, copy], { encoding: 'utf8' })
+  if (copied.status !== 0) throw new Error(`cp failed: ${copied.stderr}`)
+
+  const dir = path.join(out, 'start', `${mode}-built-with-xcode-${xcode}`)
+  const frameworks = path.join(copy, RUNNER_APP, 'Frameworks')
+  if (!existsSync(frameworks)) return undefined
+  const names = readdirSync(frameworks)
+  captureTool(path.join(dir, 'frameworks.du.txt'), 'du', ['-sk', frameworks])
+  rmSync(frameworks, { recursive: true })
+
+  const missing = []
+  if (mode === 'from-xcode') {
+    const platform = toolText('xcrun', [
+      '--sdk',
+      'iphonesimulator',
+      '--show-sdk-platform-path',
+    ]).trim()
+    mkdirSync(frameworks)
+    for (const name of names) {
+      const source = path.join(
+        platform,
+        'Developer',
+        ...(name.endsWith('.dylib')
+          ? ['usr', 'lib']
+          : ['Library', 'Frameworks']),
+        name,
+      )
+      if (!existsSync(source)) missing.push(name)
+      else spawnSync('cp', ['-R', source, path.join(frameworks, name)])
+    }
+  }
+  captureTool(path.join(dir, 'files.txt'), 'find', [copy, '-type', 'f'])
+  const size = captureTool(path.join(dir, 'du.txt'), 'du', ['-sk', copy])
+  note(
+    `${mode}, built with Xcode ${xcode}: ${names.length} frameworks out (${names.join(', ')})${mode === 'from-xcode' ? `, ${missing.length ? `not in this Xcode: ${missing.join(', ')}` : 'each one back from this Xcode'}` : ''}; ${size.stdout.toString().split('\t')[0]} kB`,
+  )
+  return {
+    xcode,
+    products: copy,
+    xctestrun: path.join(copy, path.basename(xctestrun)),
+  }
 }
 
 async function recordExpoGo() {
@@ -991,14 +1075,29 @@ try {
   udid = bootSimulator(list)
   simctlShot(path.join(out, 'simulator', 'screenshot'))
 
+  let port = FIRST_PORT
   let started = 0
-  for (const [index, runner] of runners.entries()) {
-    if (await startOnce(runner, FIRST_PORT + index)) started++
+  for (const runner of runners) {
+    if (await startOnce(runner, port++)) started++
   }
   if (started === 0) {
     note('No runner started.')
     process.exitCode = 1
   }
+  await part('slim', async () => {
+    for (const runner of runners.filter((built) => built.xctestrun)) {
+      for (const mode of SLIM_MODES) {
+        const copy = slimCopy(runner, mode)
+        if (copy) {
+          await startOnce(
+            copy,
+            port++,
+            `${mode} built with Xcode ${runner.xcode}`,
+          )
+        }
+      }
+    }
+  })
 
   if (!values['build-only']) {
     await recordExpoGo()
