@@ -5,10 +5,26 @@ import XCTest
 // One UI test that serves XCUITest on 127.0.0.1:LOUPE_PORT until it gets
 // `quit`. Each request is one JSON object on one line, with "cmd" and an
 // optional "id"; each answer is one JSON object on one line, with "ok",
-// "ms" and the same "id". XCUITest calls run on the main thread, so the
-// test keeps the main run loop going while the listener waits on its own
-// queue.
+// "ms" and the same "id". An XCUITest call that fails gives "ok" false,
+// with each failure in "issues". XCUITest calls run on the main thread, so
+// the test keeps the main run loop going while the listener waits on its
+// own queue.
 final class Runner: XCTestCase {
+  /// The XCTest failures of the request that runs now; nil between
+  /// requests. Read and written on the main thread only.
+  static var issues: [String]?
+
+  // A failed XCUITest call is the answer to its request, not a failed test:
+  // xcodebuild must still end with 0 after `quit`.
+  override func record(_ issue: XCTIssue) {
+    guard Runner.issues != nil else {
+      super.record(issue)
+      return
+    }
+    let line = issue.sourceCodeContext.location.map { " (line \($0.lineNumber))" } ?? ""
+    Runner.issues?.append(issue.compactDescription + line)
+  }
+
   func testServe() throws {
     continueAfterFailure = true
     let raw = ProcessInfo.processInfo.environment["LOUPE_PORT"].flatMap { UInt16($0) } ?? 22087
@@ -96,6 +112,7 @@ final class Handler {
     var reply: [String: Any]
     var quit = false
     var id: Any?
+    Runner.issues = []
     do {
       guard let request = try JSONSerialization.jsonObject(with: line) as? [String: Any],
         let command = request["cmd"] as? String
@@ -103,10 +120,16 @@ final class Handler {
       id = request["id"]
       quit = command == "quit"
       reply = try run(command, request)
-      reply["ok"] = true
     } catch {
-      reply = ["ok": false, "error": "\(error)"]
+      reply = ["error": "\(error)"]
     }
+    let issues = Runner.issues ?? []
+    Runner.issues = nil
+    if !issues.isEmpty {
+      reply["issues"] = issues
+      if reply["error"] == nil { reply["error"] = issues[0] }
+    }
+    reply["ok"] = reply["error"] == nil
     if let id { reply["id"] = id }
     reply["ms"] = Int(Date().timeIntervalSince(started) * 1000)
     let data =

@@ -20,6 +20,9 @@
 //    keyboard, and touches by HID event and by pid.
 // 7. summary.txt.
 //
+// iOS asks "Open in “Expo Go”?" before a link opens Expo Go. Each way taps
+// "Open" there, and counts those alerts for each link.
+//
 // A way that doesn't work is data, not a failure. The script fails when a
 // part can't run, or when no runner starts.
 
@@ -134,6 +137,20 @@ const isAppScreen = (tree) =>
   )
 
 const textOf = (node) => node?.label ?? node?.value ?? node?.title
+
+const centreOf = (frame) => ({
+  x: frame.x + frame.width / 2,
+  y: frame.y + frame.height / 2,
+})
+
+/**
+ * The "Open" button of the alert that iOS shows before a link opens another
+ * app, or undefined when the tree has no such alert.
+ */
+function linkAlertButton(tree, isButton) {
+  const asked = find(tree, (node) => node.label?.startsWith('Open in '))
+  return asked && find(tree, (node) => isButton(node) && node.label === 'Open')
+}
 
 /** Which probe channels a tree shows, and in which field. */
 function probeChannels(tree) {
@@ -351,8 +368,10 @@ async function recordExpoGo() {
 /**
  * Opens the route in Expo Go, then reads Expo Go's tree each second until
  * the route's marker shows, for up to `limit` ms. Each other screen is kept
- * once. A screen of Expo Go over the app gets a tap on its first closer;
- * else the link goes again every 20 s. Gives the time, the opens, the last
+ * once. A screen of Expo Go over the app gets a tap on its first closer.
+ * Else Springboard's tree is read: the alert that asks before the link
+ * opens gets a tap on "Open", and the first one is kept. Else the link goes
+ * again after 20 s. Gives the time, the opens, the link alerts, the last
  * tree when the route shows, and the screens on the way.
  */
 async function showRoute(runner, route, dir, limit = 120_000) {
@@ -361,6 +380,7 @@ async function showRoute(runner, route, dir, limit = 120_000) {
   const log = []
   const seen = []
   let opens = 0
+  let alerts = 0
   let openedAt = 0
   const open = () => {
     const opened = openLink(route, path.join(dir, `openurl-${++opens}.txt`))
@@ -371,7 +391,29 @@ async function showRoute(runner, route, dir, limit = 120_000) {
   }
   const finish = (result) => {
     writeFileSync(path.join(dir, 'wait.txt'), `${log.join('\n')}\n`)
-    return { ...result, opens, screens: seen }
+    return { ...result, opens, alerts, screens: seen }
+  }
+  const acceptLink = async () => {
+    const board = await ask(runner, { cmd: 'tree' })
+    if (!board.ok) {
+      log.push(
+        `${Date.now() - start} ms: Springboard tree failed: ${board.error}`,
+      )
+      return false
+    }
+    const button = linkAlertButton(board.tree, (node) => node.type === 'button')
+    if (!button) return false
+    if (++alerts === 1) {
+      writeJson(path.join(dir, 'link-alert.springboard.json'), board)
+      await shots(runner, path.join(dir, 'link-alert'))
+    }
+    const tapped = await ask(runner, { cmd: 'tap', ...centreOf(button.frame) })
+    // Expo Go starts only now, so the wait for the next open starts here.
+    openedAt = Date.now()
+    log.push(
+      `${openedAt - start} ms: link alert ${alerts}: tap "Open": ${tapped.ok ? 'ok' : tapped.error}`,
+    )
+    return true
   }
 
   open()
@@ -379,6 +421,7 @@ async function showRoute(runner, route, dir, limit = 120_000) {
   while (Date.now() - start < limit) {
     last = await appTree(runner)
     const ms = Date.now() - start
+    let acted = false
     if (!last.ok) {
       log.push(`${ms} ms: tree failed: ${last.error}`)
     } else if (find(last.tree, (node) => matches(node, MARKERS[route]))) {
@@ -409,10 +452,11 @@ async function showRoute(runner, route, dir, limit = 120_000) {
         log.push(
           `${Date.now() - start} ms: tap "${closer}": ${tapped.ok ? 'ok' : tapped.error}`,
         )
-      } else if (Date.now() - openedAt >= OPEN_AGAIN_MS) {
-        open()
+        acted = true
       }
     }
+    acted ||= await acceptLink()
+    if (!acted && Date.now() - openedAt >= OPEN_AGAIN_MS) open()
     await sleep(1000)
   }
   log.push(`${Date.now() - start} ms: ${route} didn't show`)
@@ -422,7 +466,7 @@ async function showRoute(runner, route, dir, limit = 120_000) {
 
 function noteShown(prefix, route, shown) {
   note(
-    `${prefix} ${route}: ${shown.tree ? 'shows' : "doesn't show"} after ${shown.ms} ms, ${shown.opens} opens${shown.screens.length ? `; on the way: ${shown.screens.join(' / ')}` : ''}`,
+    `${prefix} ${route}: ${shown.tree ? 'shows' : "doesn't show"} after ${shown.ms} ms, ${shown.opens} opens, ${shown.alerts} link alerts${shown.screens.length ? `; on the way: ${shown.screens.join(' / ')}` : ''}`,
   )
 }
 
@@ -607,7 +651,7 @@ async function recordExpo(runner, dir) {
     )
     const next = textOf(find(shown.tree, (node) => node.identifier === 'run'))
     note(
-      `b expo restart ${round}: terminate exit ${stop.status}; ${run} → ${next}; ${shown.tree ? 'route kept' : 'no route'} after ${shown.ms} ms, ${shown.opens} opens`,
+      `b expo restart ${round}: terminate exit ${stop.status}; ${run} → ${next}; ${shown.tree ? 'route kept' : 'no route'} after ${shown.ms} ms, ${shown.opens} opens, ${shown.alerts} link alerts`,
     )
     run = next
   }
@@ -640,7 +684,7 @@ async function recordExpo(runner, dir) {
       writeJson(path.join(dir, name, 'shown.tree.json'), shown.tree)
       await shots(runner, path.join(dir, name, 'shown'))
       note(
-        `b expo ${name}: "${textOf(find(shown.tree, (node) => node.identifier === 'direction'))}" after ${shown.ms} ms, ${shown.opens} opens`,
+        `b expo ${name}: "${textOf(find(shown.tree, (node) => node.identifier === 'direction'))}" after ${shown.ms} ms, ${shown.opens} opens, ${shown.alerts} link alerts`,
       )
     }
   } finally {
@@ -735,6 +779,51 @@ async function wayA(size) {
     await sleep(2000)
     return turned
   }
+  const tapAt = (name, frame, screen) => {
+    tool('activate', ['activate'])
+    const point = toPoint(frame, screen)
+    return tool(name, [
+      'tap',
+      String(point.x),
+      String(point.y),
+      ...sizeArg,
+      ...title,
+    ])
+  }
+  /**
+   * Opens the link in portrait, then reads the tree every 2 s until the
+   * route's marker shows: the alert that asks before the link opens gets a
+   * tap on "Open" by HID event, and a screen of Expo Go its first closer.
+   */
+  const show = async (route, file, limit = 60_000) => {
+    const opened = openLink(route, file)
+    const start = Date.now()
+    const isButton = (node) => node.role === 'AXButton'
+    let alerts = 0
+    let shows = false
+    while (!shows && Date.now() - start < limit) {
+      await sleep(2000)
+      const read = tree(`${slug(route)}-open`)
+      shows = Boolean(find(read.tree, (node) => matches(node, MARKERS[route])))
+      const open = linkAlertButton(read.tree, isButton)
+      const closer =
+        !open &&
+        !isAppScreen(read.tree) &&
+        find(
+          read.tree,
+          (node) => isButton(node) && CLOSERS.includes(node.label),
+        )
+      if (open?.frame) {
+        alerts++
+        tapAt('link-alert-open', open.frame, read.screen)
+      } else if (closer?.frame) {
+        tapAt(`close-${closer.label}`, closer.frame, read.screen)
+      }
+    }
+    note(
+      `a open ${route}: link ${opened.stopped ? 'stopped after 8 s' : `exit ${opened.status}`}; ${shows ? 'shows' : "doesn't show"} after ${Date.now() - start} ms, ${alerts} link alerts`,
+    )
+  }
   const state = (name) => {
     const read = tool(`${name}-window`, ['window', ...title])
     captureTool(
@@ -747,8 +836,7 @@ async function wayA(size) {
 
   for (const route of SCREENS) {
     const routeDir = path.join(dir, 'screens', slug(route))
-    openLink(route, path.join(routeDir, 'openurl.txt'))
-    await sleep(4000)
+    await show(route, path.join(routeDir, 'openurl.txt'))
     for (const [name, keys] of [
       ['portrait', []],
       ['rotate-left', ['cmd+left']],
@@ -776,8 +864,7 @@ async function wayA(size) {
     `a menu: Rotate Left ${menuLeft.error ?? 'ok'} (screen ${afterMenu.screen?.width} × ${afterMenu.screen?.height}); Rotate Right ${menuRight.error ?? 'ok'} (screen ${backMenu.screen?.width} × ${backMenu.screen?.height})`,
   )
 
-  openLink('/sheets', path.join(dir, 'touch', 'openurl.txt'))
-  await sleep(4000)
+  await show('/sheets', path.join(dir, 'touch', 'openurl.txt'))
   const alertButton = (read) =>
     find(read.tree, (node) => node.identifier === 'open-alert') ??
     find(read.tree, (node) => matches(node, { text: 'Alert' }))
@@ -838,8 +925,7 @@ async function wayA(size) {
     tool('key-cmd+right', ['key', 'cmd+right'])
   })
 
-  openLink('/scroll/defect', path.join(dir, 'drag', 'openurl.txt'))
-  await sleep(4000)
+  await show('/scroll/defect', path.join(dir, 'drag', 'openurl.txt'))
   const before = tree('drag-before')
   const row = (read) =>
     find(read.tree, (node) => node.identifier === 'row-1') ??
