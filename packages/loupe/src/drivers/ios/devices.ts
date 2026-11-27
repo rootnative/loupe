@@ -35,11 +35,22 @@ export function hasSimulators(context: CommandContext): boolean {
   return context.hostPlatform === 'darwin'
 }
 
+/**
+ * `simctl list` waits for the simulator service. Right after a simulator
+ * boots on a busy Mac, it can take more than the 30 s that a tool gets by
+ * default.
+ */
+const LIST_TIMEOUT_MS = 120_000
+
 /** Each iOS simulator that Xcode can start, as simctl gives it. */
 export async function readSimulators(
   context: CommandContext,
 ): Promise<SimulatorEntry[]> {
-  return parseSimctlList(await createSimctl(context).text(['list', '--json']))
+  return parseSimctlList(
+    await createSimctl(context).text(['list', '--json'], {
+      timeout: LIST_TIMEOUT_MS,
+    }),
+  )
 }
 
 /**

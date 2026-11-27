@@ -29,6 +29,19 @@ describe('listIosSimulators', () => {
     )
   })
 
+  it('gives simctl 2 minutes, for a Mac that is busy after a boot', async () => {
+    const { context, calls } = mac(RECORDED)
+    await listIosSimulators(context)
+
+    expect(calls).toEqual([
+      {
+        file: 'xcrun',
+        args: ['simctl', 'list', '--json'],
+        options: { timeout: 120_000 },
+      },
+    ])
+  })
+
   it('puts the simulators that run first, and keeps a state it does not know', async () => {
     // The iPhone 16 Pro of iOS 18.6, and the second simulator of iOS 18.5.
     const running = RECORDED.replace(

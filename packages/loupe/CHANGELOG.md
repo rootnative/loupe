@@ -13,6 +13,10 @@ All notable changes to `@rootnative/loupe` are in this file. The format follows 
 
 - `CommandContext` has `spawnDetached`, which starts a tool that stays after the command. `createContext()` sets it. A context that you build by hand needs it.
 
+### Fixed
+
+- On a busy Mac, `simctl list` can take more than 30 seconds right after a simulator boots. loupe stopped it then, so `devices` gave a warning in place of the simulators, and `device` didn't find a simulator. loupe now gives it 2 minutes.
+
 ## [0.0.0-alpha.3] - 2026-11-28
 
 The first step to iOS: on a Mac, `devices` lists the iOS simulators, and `device` takes one. loupe doesn't drive a simulator yet.
